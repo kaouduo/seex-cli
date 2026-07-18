@@ -96,7 +96,7 @@ jobs:
         if: runner.os == 'Windows' && matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh
         run: |
-          choco install wixtoolset innosetup -y --no-progress
+          choco install innosetup -y --no-progress
 
       - name: Run tests
         run: cargo test --locked --target ${{ matrix.target }}
@@ -125,54 +125,6 @@ jobs:
           $assets.Add($archive)
 
           if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
-            $msi = "$name.msi"
-            $wxs = "$name.wxs"
-            $wxsContent = @(
-              '<?xml version="1.0" encoding="UTF-8"?>'
-              '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">'
-              '  <Product Id="*" Name="SeEx" Language="1033" Version="' + $version + '" Manufacturer="Ref42" UpgradeCode="A5AE338A-F870-4DB2-98A1-03C7B012A699">'
-              '    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />'
-              '    <MajorUpgrade DowngradeErrorMessage="A newer version of SeEx is already installed." />'
-              '    <MediaTemplate EmbedCab="yes" />'
-              '    <Feature Id="ProductFeature" Title="SeEx" Level="1">'
-              '      <ComponentGroupRef Id="ProductComponents" />'
-              '    </Feature>'
-              '  </Product>'
-              ''
-              '  <Fragment>'
-              '    <Directory Id="TARGETDIR" Name="SourceDir">'
-              '      <Directory Id="ProgramFilesFolder">'
-              '        <Directory Id="INSTALLFOLDER" Name="SeEx" />'
-              '      </Directory>'
-              '    </Directory>'
-              '  </Fragment>'
-              ''
-              '  <Fragment>'
-              '    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">'
-              '      <Component Id="SeExExecutable" Guid="7A1828B9-39BC-47D5-9777-F240A30BBE5C">'
-              '        <File Id="SeExExe" Source="' + $bin + '" KeyPath="yes" />'
-              '      </Component>'
-              '    </ComponentGroup>'
-              '  </Fragment>'
-              '</Wix>'
-            )
-            $wxsContent | Set-Content -Path $wxs -Encoding UTF8
-
-            $candlePath = (Get-Command candle.exe -ErrorAction SilentlyContinue).Source
-            if (-not $candlePath) {
-              $candlePath = (Get-ChildItem "${env:ProgramFiles(x86)}" -Recurse -Filter candle.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            }
-            $lightPath = (Get-Command light.exe -ErrorAction SilentlyContinue).Source
-            if (-not $lightPath) {
-              $lightPath = (Get-ChildItem "${env:ProgramFiles(x86)}" -Recurse -Filter light.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            }
-            if (-not $candlePath -or -not $lightPath) {
-              throw "WiX Toolset was installed, but candle.exe/light.exe were not found."
-            }
-            & $candlePath -arch x64 -out "$name.wixobj" $wxs
-            & $lightPath -out $msi "$name.wixobj"
-            $assets.Add($msi)
-
             $setupBase = "$name-setup"
             $setupExe = "$setupBase.exe"
             $iss = "$setupBase.iss"

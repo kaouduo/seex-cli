@@ -3491,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "seex"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "arboard",
  "chrono",
