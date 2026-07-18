@@ -142,6 +142,7 @@ jobs:
               'DisableProgramGroupPage=yes'
               'OutputDir=.'
               'OutputBaseFilename=' + $setupBase
+              'SetupIconFile=assets\icons\seex.ico'
               'Compression=lzma'
               'SolidCompression=yes'
               'UninstallDisplayIcon={app}\seex.exe'
