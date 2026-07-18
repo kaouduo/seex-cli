@@ -127,35 +127,36 @@ jobs:
           if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
             $msi = "$name.msi"
             $wxs = "$name.wxs"
-            @"
-<?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="SeEx" Language="1033" Version="$version" Manufacturer="Ref42" UpgradeCode="A5AE338A-F870-4DB2-98A1-03C7B012A699">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of SeEx is already installed." />
-    <MediaTemplate EmbedCab="yes" />
-    <Feature Id="ProductFeature" Title="SeEx" Level="1">
-      <ComponentGroupRef Id="ProductComponents" />
-    </Feature>
-  </Product>
-
-  <Fragment>
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFilesFolder">
-        <Directory Id="INSTALLFOLDER" Name="SeEx" />
-      </Directory>
-    </Directory>
-  </Fragment>
-
-  <Fragment>
-    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <Component Id="SeExExecutable" Guid="7A1828B9-39BC-47D5-9777-F240A30BBE5C">
-        <File Id="SeExExe" Source="$bin" KeyPath="yes" />
-      </Component>
-    </ComponentGroup>
-  </Fragment>
-</Wix>
-"@ | Set-Content -Path $wxs -Encoding UTF8
+            $wxsContent = @(
+              '<?xml version="1.0" encoding="UTF-8"?>'
+              '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">'
+              '  <Product Id="*" Name="SeEx" Language="1033" Version="' + $version + '" Manufacturer="Ref42" UpgradeCode="A5AE338A-F870-4DB2-98A1-03C7B012A699">'
+              '    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />'
+              '    <MajorUpgrade DowngradeErrorMessage="A newer version of SeEx is already installed." />'
+              '    <MediaTemplate EmbedCab="yes" />'
+              '    <Feature Id="ProductFeature" Title="SeEx" Level="1">'
+              '      <ComponentGroupRef Id="ProductComponents" />'
+              '    </Feature>'
+              '  </Product>'
+              ''
+              '  <Fragment>'
+              '    <Directory Id="TARGETDIR" Name="SourceDir">'
+              '      <Directory Id="ProgramFilesFolder">'
+              '        <Directory Id="INSTALLFOLDER" Name="SeEx" />'
+              '      </Directory>'
+              '    </Directory>'
+              '  </Fragment>'
+              ''
+              '  <Fragment>'
+              '    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">'
+              '      <Component Id="SeExExecutable" Guid="7A1828B9-39BC-47D5-9777-F240A30BBE5C">'
+              '        <File Id="SeExExe" Source="' + $bin + '" KeyPath="yes" />'
+              '      </Component>'
+              '    </ComponentGroup>'
+              '  </Fragment>'
+              '</Wix>'
+            )
+            $wxsContent | Set-Content -Path $wxs -Encoding UTF8
 
             $candlePath = (Get-Command candle.exe -ErrorAction SilentlyContinue).Source
             if (-not $candlePath) {
@@ -175,37 +176,38 @@ jobs:
             $setupBase = "$name-setup"
             $setupExe = "$setupBase.exe"
             $iss = "$setupBase.iss"
-            @"
-[Setup]
-AppId={{A5AE338A-F870-4DB2-98A1-03C7B012A699}
-AppName=SeEx
-AppVersion=$version
-AppPublisher=Ref42
-AppPublisherURL=https://github.com/ref42/seex
-AppSupportURL=https://github.com/ref42/seex
-AppUpdatesURL=https://github.com/ref42/seex/releases
-DefaultDirName={autopf}\SeEx
-DefaultGroupName=SeEx
-DisableProgramGroupPage=yes
-OutputDir=.
-OutputBaseFilename=$setupBase
-Compression=lzma
-SolidCompression=yes
-UninstallDisplayIcon={app}\seex.exe
-
-[Files]
-Source: "$bin"; DestDir: "{app}"; Flags: ignoreversion
-
-[Icons]
-Name: "{group}\SeEx"; Filename: "{app}\seex.exe"
-Name: "{autodesktop}\SeEx"; Filename: "{app}\seex.exe"; Tasks: desktopicon
-
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
-
-[Run]
-Filename: "{app}\seex.exe"; Description: "Launch SeEx"; Flags: nowait postinstall skipifsilent
-"@ | Set-Content -Path $iss -Encoding UTF8
+            $issContent = @(
+              '[Setup]'
+              'AppId={{A5AE338A-F870-4DB2-98A1-03C7B012A699}'
+              'AppName=SeEx'
+              'AppVersion=' + $version
+              'AppPublisher=Ref42'
+              'AppPublisherURL=https://github.com/ref42/seex'
+              'AppSupportURL=https://github.com/ref42/seex'
+              'AppUpdatesURL=https://github.com/ref42/seex/releases'
+              'DefaultDirName={autopf}\SeEx'
+              'DefaultGroupName=SeEx'
+              'DisableProgramGroupPage=yes'
+              'OutputDir=.'
+              'OutputBaseFilename=' + $setupBase
+              'Compression=lzma'
+              'SolidCompression=yes'
+              'UninstallDisplayIcon={app}\seex.exe'
+              ''
+              '[Files]'
+              'Source: "' + $bin + '"; DestDir: "{app}"; Flags: ignoreversion'
+              ''
+              '[Icons]'
+              'Name: "{group}\SeEx"; Filename: "{app}\seex.exe"'
+              'Name: "{autodesktop}\SeEx"; Filename: "{app}\seex.exe"; Tasks: desktopicon'
+              ''
+              '[Tasks]'
+              'Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked'
+              ''
+              '[Run]'
+              'Filename: "{app}\seex.exe"; Description: "Launch SeEx"; Flags: nowait postinstall skipifsilent'
+            )
+            $issContent | Set-Content -Path $iss -Encoding UTF8
 
             $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
             if (-not (Test-Path $iscc)) {
