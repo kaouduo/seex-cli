@@ -83,7 +83,7 @@ impl MonitorState {
             npnp_append: false,
             npnp_library_name: "SeExMerged".to_string(),
             npnp_parallel: 4,
-            npnp_continue_on_error: true,
+            npnp_continue_on_error: false,
             npnp_lcsc_english: false,
             npnp_force: false,
             npnp_project_relative: false,

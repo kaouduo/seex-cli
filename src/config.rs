@@ -66,7 +66,7 @@ impl Default for NpnpConfig {
             append: false,
             library_name: "SeExMerged".to_string(),
             parallel: 4,
-            continue_on_error: true,
+            continue_on_error: false,
             lcsc_english: false,
             force: false,
             project_relative: false,

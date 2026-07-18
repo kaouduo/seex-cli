@@ -23,6 +23,7 @@ use crate::config::{AppConfig, MonitorConfig, NpnpConfig};
 
 const PATTERN_QUICK: &str = "regex:(?m)^(C\\d{3,})$";
 const PATTERN_FULL: &str = "regex:编号[：:]\\s*(C\\d+)";
+const FONT_SCALE_FROM_CURRENT: f32 = 0.75;
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
 
 fn main() -> eframe::Result {
@@ -43,7 +44,7 @@ fn main() -> eframe::Result {
 }
 
 fn load_app_icon() -> egui::IconData {
-    let image = image::load_from_memory(include_bytes!("../assets/icons/seex-icon.png"))
+    let image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
         .expect("embedded SeEx icon must decode")
         .into_rgba8();
     let (width, height) = image.dimensions();
@@ -52,6 +53,27 @@ fn load_app_icon() -> egui::IconData {
         width,
         height,
     }
+}
+
+fn load_texture(ctx: &Context, name: &str, bytes: &[u8]) -> egui::TextureHandle {
+    let mut image = image::load_from_memory(bytes)
+        .expect("embedded logo must decode")
+        .into_rgba8();
+    let max_edge = 256;
+    let source_edge = image.width().max(image.height());
+    if source_edge > max_edge {
+        let scale = max_edge as f32 / source_edge as f32;
+        let width = ((image.width() as f32 * scale).round() as u32).max(1);
+        let height = ((image.height() as f32 * scale).round() as u32).max(1);
+        image = image::imageops::resize(&image, width, height, image::imageops::Lanczos3);
+    }
+    let size = [image.width() as usize, image.height() as usize];
+    let pixels = image.into_raw();
+    ctx.load_texture(
+        name,
+        egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
+        egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)),
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -71,6 +93,8 @@ enum Lang {
 struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
+    seex_logo: egui::TextureHandle,
+    npnp_logo: egui::TextureHandle,
     page: Page,
     lang: Lang,
     pin_on_top: bool,
@@ -95,10 +119,22 @@ impl SeexApp {
 
         let state = Arc::new(Mutex::new(initial));
         let monitor = MonitorHandle::spawn(Arc::clone(&state));
+        let seex_logo = load_texture(
+            &cc.egui_ctx,
+            "seex-logo",
+            include_bytes!("../assets/icons/seex.png"),
+        );
+        let npnp_logo = load_texture(
+            &cc.egui_ctx,
+            "npnp-logo",
+            include_bytes!("../assets/icons/npnp.png"),
+        );
 
         Self {
             state,
             _monitor: monitor,
+            seex_logo,
+            npnp_logo,
             page: Page::Monitor,
             lang: Lang::En,
             pin_on_top: true,
@@ -265,8 +301,6 @@ impl SeexApp {
         self.monitor_actions(ui);
         ui.add_space(10.0);
         self.matched_list(ui);
-        ui.add_space(10.0);
-        self.latest_clipboard(ui);
     }
 
     fn monitor_actions(&mut self, ui: &mut Ui) {
@@ -381,34 +415,6 @@ impl SeexApp {
                     }
                 }
             });
-        });
-    }
-
-    fn latest_clipboard(&mut self, ui: &mut Ui) {
-        let latest = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| state.history.first().cloned());
-        ui.group(|ui| {
-            ui.strong(self.t("Clipboard", "剪贴板"));
-            if let Some((time, mut content)) = latest {
-                ui.label(
-                    RichText::new(format!("{} {}", self.t("Latest:", "最新:"), time))
-                        .color(muted()),
-                );
-                ui.add(
-                    TextEdit::multiline(&mut content)
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY)
-                        .interactive(false),
-                );
-            } else {
-                ui.label(
-                    RichText::new(self.t("Waiting for clipboard...", "等待剪贴板内容..."))
-                        .color(muted()),
-                );
-            }
         });
     }
 
@@ -533,7 +539,7 @@ impl SeexApp {
                 }
                 if let Some(result) = &state.npnp_last_result {
                     ui.separator();
-                    ui.label(RichText::new(result).monospace());
+                    render_export_result(ui, result);
                     let failed = extract_failed_ids(result);
                     ui.horizontal(|ui| {
                         if !failed.is_empty()
@@ -721,7 +727,7 @@ impl SeexApp {
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "\u{1F4CC}",
-            FontId::new(22.0, FontFamily::Proportional),
+            FontId::new(scaled_font(22.0), FontFamily::Proportional),
             icon_color,
         );
 
@@ -745,16 +751,39 @@ impl SeexApp {
             self.t("About", "关于"),
             self.t("Clipboard Event Tracker", "剪贴板事件追踪器"),
         );
-        ui.vertical_centered(|ui| {
-            ui.add_space(30.0);
-            ui.heading(RichText::new("SeEx").size(128.0).color(primary()));
-            ui.label(self.t(
-                "Monitors clipboard in real time, extracts component IDs, and exports EDA libraries through npnp.",
-                "实时监听剪贴板，提取元件 ID，并通过 npnp 导出 EDA 库。",
-            ));
-            ui.add_space(16.0);
-            ui.hyperlink_to("npnp", "https://github.com/ref42/npnp");
-            ui.label("Copyright (c) Ref42. All rights reserved.");
+
+        ui.add_space(36.0);
+        about_identity_row(
+            ui,
+            &self.seex_logo,
+            false,
+            "SeEx",
+            self.t(
+                "Clipboard monitor, component ID extractor, and EDA library export workspace.",
+                "剪贴板监听、元件 ID 提取和 EDA 库导出工作台。",
+            ),
+            Some(("SeEx", app_version())),
+        );
+
+        ui.add_space(28.0);
+        ui.separator();
+        ui.add_space(28.0);
+
+        about_identity_row(
+            ui,
+            &self.npnp_logo,
+            false,
+            self.t("Powered by npnp", "由 npnp 驱动"),
+            self.t(
+                "Pure Rust LCEDA/EasyEDA downloader and Altium/KiCad library exporter.",
+                "纯 Rust LCEDA/EasyEDA 下载器，以及 Altium/KiCad 库导出器。",
+            ),
+            Some(("npnp GitHub", "https://github.com/ref42/npnp")),
+        );
+
+        ui.add_space(42.0);
+        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(RichText::new("Copyright (c) Ref42. All rights reserved.").color(muted()));
         });
     }
 
@@ -896,20 +925,23 @@ fn install_style(ctx: &Context) {
     style.text_styles = [
         (
             TextStyle::Small,
-            FontId::new(18.0, FontFamily::Proportional),
+            FontId::new(scaled_font(18.0), FontFamily::Proportional),
         ),
-        (TextStyle::Body, FontId::new(26.0, FontFamily::Proportional)),
+        (
+            TextStyle::Body,
+            FontId::new(scaled_font(26.0), FontFamily::Proportional),
+        ),
         (
             TextStyle::Button,
-            FontId::new(26.0, FontFamily::Proportional),
+            FontId::new(scaled_font(26.0), FontFamily::Proportional),
         ),
         (
             TextStyle::Heading,
-            FontId::new(36.0, FontFamily::Proportional),
+            FontId::new(scaled_font(36.0), FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(26.0, FontFamily::Monospace),
+            FontId::new(scaled_font(26.0), FontFamily::Monospace),
         ),
     ]
     .into();
@@ -1005,6 +1037,78 @@ fn mode_button(ui: &mut Ui, mode: &mut String, value: &str, label: &str) {
     }
 }
 
+fn app_version() -> &'static str {
+    concat!("v", env!("CARGO_PKG_VERSION"))
+}
+
+fn about_identity_row(
+    ui: &mut Ui,
+    texture: &egui::TextureHandle,
+    light_tile: bool,
+    title: &str,
+    description: &str,
+    link: Option<(&str, &str)>,
+) {
+    ui.horizontal(|ui| {
+        logo_tile(ui, texture, light_tile);
+        ui.add_space(22.0);
+        ui.vertical(|ui| {
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(title)
+                    .size(scaled_font(30.0))
+                    .strong()
+                    .color(text_color()),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(description)
+                    .size(scaled_font(22.0))
+                    .color(muted()),
+            );
+            ui.add_space(12.0);
+            if let Some((label, target)) = link {
+                if target.starts_with("http") {
+                    ui.hyperlink_to(label, target);
+                } else {
+                    ui.label(RichText::new(format!("{label} {target}")).color(muted()));
+                }
+            }
+        });
+    });
+}
+
+fn logo_tile(ui: &mut Ui, texture: &egui::TextureHandle, light_tile: bool) {
+    let size = Vec2::new(104.0, 104.0);
+    let pad = Vec2::splat(12.0);
+    let tile_size = size + pad * 2.0;
+    let (rect, _) = ui.allocate_exact_size(tile_size, egui::Sense::hover());
+    let fill = if light_tile {
+        Color32::from_rgb(248, 248, 246)
+    } else {
+        surface()
+    };
+    ui.painter().rect(
+        rect,
+        8.0,
+        fill,
+        Stroke::new(1.0, border()),
+        egui::StrokeKind::Inside,
+    );
+
+    let image_rect = egui::Rect::from_center_size(rect.center(), size);
+    ui.painter().image(
+        texture.id(),
+        image_rect,
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+        Color32::WHITE,
+    );
+}
+
+fn scaled_font(size: f32) -> f32 {
+    size * FONT_SCALE_FROM_CURRENT
+}
+
 fn top_bar_text(ui: &mut Ui, width: f32, label: &str, size: f32, color: Color32, strong: bool) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 44.0), egui::Sense::hover());
     let font_size = if strong { size + 1.0 } else { size };
@@ -1012,7 +1116,7 @@ fn top_bar_text(ui: &mut Ui, width: f32, label: &str, size: f32, color: Color32,
         rect.center(),
         egui::Align2::CENTER_CENTER,
         label,
-        FontId::new(font_size, FontFamily::Proportional),
+        FontId::new(scaled_font(font_size), FontFamily::Proportional),
         color,
     );
 }
@@ -1035,7 +1139,7 @@ fn top_bar_button(ui: &mut Ui, width: f32, label: &str, selected: bool) -> egui:
         rect.center(),
         egui::Align2::CENTER_CENTER,
         label,
-        FontId::new(26.0, FontFamily::Proportional),
+        FontId::new(scaled_font(26.0), FontFamily::Proportional),
         if selected {
             Color32::WHITE
         } else {
@@ -1075,6 +1179,52 @@ fn first_line(content: &str, max_chars: usize) -> String {
         line.push_str("...");
     }
     line
+}
+
+fn render_export_result(ui: &mut Ui, result: &str) {
+    for line in result.lines().filter(|line| !line.trim().is_empty()) {
+        let trimmed = line.trim();
+        let color = if is_success_result_line(trimmed) {
+            success()
+        } else if is_failure_result_line(trimmed) {
+            danger()
+        } else if is_muted_result_line(trimmed) {
+            muted()
+        } else {
+            text_color()
+        };
+        let text = if trimmed.starts_with("Generated:") || trimmed.starts_with("Output directory:")
+        {
+            RichText::new(trimmed).monospace().color(color)
+        } else {
+            RichText::new(trimmed).color(color)
+        };
+        ui.label(text);
+    }
+}
+
+fn is_success_result_line(line: &str) -> bool {
+    line == "Status: Success"
+        || line.starts_with("Elapsed:")
+        || line.starts_with("Stage totals:")
+        || line.starts_with("3D models:")
+        || line.starts_with("Generated:")
+        || (line.contains("Success:") && line.contains("Failed: 0"))
+}
+
+fn is_failure_result_line(line: &str) -> bool {
+    line == "Status: Failed"
+        || line.starts_with("Failed IDs:")
+        || line.starts_with("FAILED ")
+        || line.starts_with("npnp ")
+        || line.contains(" failed")
+}
+
+fn is_muted_result_line(line: &str) -> bool {
+    line.starts_with("Targets:")
+        || line.starts_with("Target:")
+        || line.starts_with("Output directory:")
+        || line.starts_with("Exit:")
 }
 
 fn extract_failed_ids(result: &str) -> Vec<String> {
