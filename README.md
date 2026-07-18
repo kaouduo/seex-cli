@@ -140,19 +140,6 @@ It builds these targets:
 - `x86_64-apple-darwin` on `macos-26-intel`
 - `aarch64-apple-darwin` on `macos-26`
 
-The workflow installs Linux build packages because `eframe`/`egui`, clipboard access, and native file dialogs depend on platform GUI libraries. Ubuntu builds install packages with `apt`; Fedora and Arch builds run inside distro containers and install packages with `dnf`/`pacman`.
-
-Some newest hosted runner labels, especially Windows ARM and Ubuntu 26.04, may be public preview on GitHub Actions. If GitHub changes runner availability, use the nearest stable label in `.github/workflows/release.yml`.
-
-Create a release by pushing a version tag:
-
-```bash
-git tag -a v1.0.12 -m "SeEx v1.0.12"
-git push origin v1.0.12
-```
-
-You can also run the workflow manually with `workflow_dispatch` and provide a tag name.
-
 ## License
 
 See [LICENSE](LICENSE). Copyright (c) Ref42. All rights reserved.
