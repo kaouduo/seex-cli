@@ -92,6 +92,12 @@ jobs:
             libdbus-1-dev \
             libudev-dev
 
+      - name: Install Windows installer tools
+        if: runner.os == 'Windows' && matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          choco install wixtoolset innosetup -y --no-progress
+
       - name: Run tests
         run: cargo test --locked --target ${{ matrix.target }}
 
@@ -103,13 +109,121 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:RELEASE_TAG
+          $version = $tag.TrimStart("v")
           $name = "seex-$tag-${{ matrix.asset_suffix }}"
+          $bin = "target\${{ matrix.target }}\release\${{ matrix.binary }}"
+          $assets = New-Object System.Collections.Generic.List[string]
+
+          $rawExe = "$name.exe"
+          Copy-Item $bin $rawExe -Force
+          $assets.Add($rawExe)
+
           New-Item -ItemType Directory -Path "dist\$name" -Force
-          Copy-Item "target\${{ matrix.target }}\release\${{ matrix.binary }}" "dist\$name\"
-          Copy-Item README.md, LICENSE "dist\$name\"
-          $asset = "$name.${{ matrix.archive }}"
-          Compress-Archive -Path "dist\$name\*" -DestinationPath $asset -Force
-          "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Copy-Item $bin "dist\$name\"
+          $archive = "$name.${{ matrix.archive }}"
+          Compress-Archive -Path "dist\$name\*" -DestinationPath $archive -Force
+          $assets.Add($archive)
+
+          if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
+            $msi = "$name.msi"
+            $wxs = "$name.wxs"
+            @"
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="SeEx" Language="1033" Version="$version" Manufacturer="Ref42" UpgradeCode="A5AE338A-F870-4DB2-98A1-03C7B012A699">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SeEx is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="ProductFeature" Title="SeEx" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+  </Product>
+
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="SeEx" />
+      </Directory>
+    </Directory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="SeExExecutable" Guid="7A1828B9-39BC-47D5-9777-F240A30BBE5C">
+        <File Id="SeExExe" Source="$bin" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
+"@ | Set-Content -Path $wxs -Encoding UTF8
+
+            $candlePath = (Get-Command candle.exe -ErrorAction SilentlyContinue).Source
+            if (-not $candlePath) {
+              $candlePath = (Get-ChildItem "${env:ProgramFiles(x86)}" -Recurse -Filter candle.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            }
+            $lightPath = (Get-Command light.exe -ErrorAction SilentlyContinue).Source
+            if (-not $lightPath) {
+              $lightPath = (Get-ChildItem "${env:ProgramFiles(x86)}" -Recurse -Filter light.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            }
+            if (-not $candlePath -or -not $lightPath) {
+              throw "WiX Toolset was installed, but candle.exe/light.exe were not found."
+            }
+            & $candlePath -arch x64 -out "$name.wixobj" $wxs
+            & $lightPath -out $msi "$name.wixobj"
+            $assets.Add($msi)
+
+            $setupBase = "$name-setup"
+            $setupExe = "$setupBase.exe"
+            $iss = "$setupBase.iss"
+            @"
+[Setup]
+AppId={{A5AE338A-F870-4DB2-98A1-03C7B012A699}
+AppName=SeEx
+AppVersion=$version
+AppPublisher=Ref42
+AppPublisherURL=https://github.com/ref42/seex
+AppSupportURL=https://github.com/ref42/seex
+AppUpdatesURL=https://github.com/ref42/seex/releases
+DefaultDirName={autopf}\SeEx
+DefaultGroupName=SeEx
+DisableProgramGroupPage=yes
+OutputDir=.
+OutputBaseFilename=$setupBase
+Compression=lzma
+SolidCompression=yes
+UninstallDisplayIcon={app}\seex.exe
+
+[Files]
+Source: "$bin"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\SeEx"; Filename: "{app}\seex.exe"
+Name: "{autodesktop}\SeEx"; Filename: "{app}\seex.exe"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Run]
+Filename: "{app}\seex.exe"; Description: "Launch SeEx"; Flags: nowait postinstall skipifsilent
+"@ | Set-Content -Path $iss -Encoding UTF8
+
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (-not (Test-Path $iscc)) {
+              $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+              if (-not $isccCommand) {
+                throw "Inno Setup was installed, but ISCC.exe was not found."
+              }
+              $iscc = $isccCommand.Source
+            }
+            & $iscc $iss
+            $assets.Add($setupExe)
+          }
+
+          "ASSETS<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          foreach ($asset in $assets) {
+            $asset | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          "EOF" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Package Unix binary
         if: runner.os != 'Windows'
@@ -120,16 +234,15 @@ jobs:
           name="seex-$tag-${{ matrix.asset_suffix }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/$name/"
-          cp README.md LICENSE "dist/$name/"
           asset="$name.${{ matrix.archive }}"
           tar -czf "$asset" -C dist "$name"
-          echo "ASSET=$asset" >> "$GITHUB_ENV"
+          echo "ASSETS=$asset" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
           name: seex-${{ env.RELEASE_TAG }}-${{ matrix.asset_suffix }}
-          path: ${{ env.ASSET }}
+          path: ${{ env.ASSETS }}
 
   build-linux-distro:
     name: build ${{ matrix.asset_suffix }}
@@ -186,15 +299,15 @@ jobs:
             -e PACKAGE_NAME="$name" \
             -e TARGET="$target" \
             "$container" \
-            bash -lc '${{ matrix.install }} && cargo test --locked --target "$TARGET" && cargo build --release --locked --target "$TARGET" --bin seex && mkdir -p "dist/$ASSET_SUFFIX/$PACKAGE_NAME" && cp "target/$ASSET_SUFFIX/$TARGET/release/seex" "dist/$ASSET_SUFFIX/$PACKAGE_NAME/" && cp README.md LICENSE "dist/$ASSET_SUFFIX/$PACKAGE_NAME/"'
+            bash -lc '${{ matrix.install }} && cargo test --locked --target "$TARGET" && cargo build --release --locked --target "$TARGET" --bin seex && mkdir -p "dist/$ASSET_SUFFIX/$PACKAGE_NAME" && cp "target/$ASSET_SUFFIX/$TARGET/release/seex" "dist/$ASSET_SUFFIX/$PACKAGE_NAME/"'
           tar -czf "$name.tar.gz" -C "dist/$asset_suffix" "$name"
-          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+          echo "ASSETS=$name.tar.gz" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
           name: seex-${{ env.RELEASE_TAG }}-${{ matrix.asset_suffix }}
-          path: ${{ env.ASSET }}
+          path: ${{ env.ASSETS }}
 
   release:
     name: publish release assets

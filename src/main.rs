@@ -44,20 +44,8 @@ fn main() -> eframe::Result {
 }
 
 fn load_app_icon() -> egui::IconData {
-    let image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
+    let mut image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
         .expect("embedded SeEx icon must decode")
-        .into_rgba8();
-    let (width, height) = image.dimensions();
-    egui::IconData {
-        rgba: image.into_raw(),
-        width,
-        height,
-    }
-}
-
-fn load_texture(ctx: &Context, name: &str, bytes: &[u8]) -> egui::TextureHandle {
-    let mut image = image::load_from_memory(bytes)
-        .expect("embedded logo must decode")
         .into_rgba8();
     let max_edge = 256;
     let source_edge = image.width().max(image.height());
@@ -67,13 +55,12 @@ fn load_texture(ctx: &Context, name: &str, bytes: &[u8]) -> egui::TextureHandle 
         let height = ((image.height() as f32 * scale).round() as u32).max(1);
         image = image::imageops::resize(&image, width, height, image::imageops::Lanczos3);
     }
-    let size = [image.width() as usize, image.height() as usize];
-    let pixels = image.into_raw();
-    ctx.load_texture(
-        name,
-        egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
-        egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)),
-    )
+    let (width, height) = image.dimensions();
+    egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,7 +68,6 @@ enum Page {
     Monitor,
     History,
     Export,
-    About,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,8 +79,6 @@ enum Lang {
 struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
-    seex_logo: egui::TextureHandle,
-    npnp_logo: egui::TextureHandle,
     page: Page,
     lang: Lang,
     pin_on_top: bool,
@@ -119,22 +103,10 @@ impl SeexApp {
 
         let state = Arc::new(Mutex::new(initial));
         let monitor = MonitorHandle::spawn(Arc::clone(&state));
-        let seex_logo = load_texture(
-            &cc.egui_ctx,
-            "seex-logo",
-            include_bytes!("../assets/icons/seex.png"),
-        );
-        let npnp_logo = load_texture(
-            &cc.egui_ctx,
-            "npnp-logo",
-            include_bytes!("../assets/icons/npnp.png"),
-        );
 
         Self {
             state,
             _monitor: monitor,
-            seex_logo,
-            npnp_logo,
             page: Page::Monitor,
             lang: Lang::En,
             pin_on_top: true,
@@ -167,7 +139,6 @@ impl SeexApp {
             self.nav_item(ui, Page::Monitor, self.t("Monitor", "监听"));
             self.nav_item(ui, Page::History, self.t("History", "历史"));
             self.nav_item(ui, Page::Export, self.t("Export", "导出"));
-            self.nav_item(ui, Page::About, self.t("About", "关于"));
 
             ui.add_space((ui.available_width() - RIGHT_CONTROLS_WIDTH).max(0.0));
             self.language_toggle(ui);
@@ -745,48 +716,6 @@ impl SeexApp {
         }
     }
 
-    fn about_page(&mut self, ui: &mut Ui) {
-        self.page_title(
-            ui,
-            self.t("About", "关于"),
-            self.t("Clipboard Event Tracker", "剪贴板事件追踪器"),
-        );
-
-        ui.add_space(36.0);
-        about_identity_row(
-            ui,
-            &self.seex_logo,
-            false,
-            "SeEx",
-            self.t(
-                "Clipboard monitor, component ID extractor, and EDA library export workspace.",
-                "剪贴板监听、元件 ID 提取和 EDA 库导出工作台。",
-            ),
-            Some(("SeEx", app_version())),
-        );
-
-        ui.add_space(28.0);
-        ui.separator();
-        ui.add_space(28.0);
-
-        about_identity_row(
-            ui,
-            &self.npnp_logo,
-            false,
-            self.t("Powered by npnp", "由 npnp 驱动"),
-            self.t(
-                "Pure Rust LCEDA/EasyEDA downloader and Altium/KiCad library exporter.",
-                "纯 Rust LCEDA/EasyEDA 下载器，以及 Altium/KiCad 库导出器。",
-            ),
-            Some(("npnp GitHub", "https://github.com/ref42/npnp")),
-        );
-
-        ui.add_space(42.0);
-        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new("Copyright (c) Ref42. All rights reserved.").color(muted()));
-        });
-    }
-
     fn set_keyword_from_modes(&mut self) {
         let keyword = build_keyword(self.match_quick, self.match_full);
         if let Ok(mut state) = self.state.lock() {
@@ -857,7 +786,6 @@ impl eframe::App for SeexApp {
                             Page::Monitor => self.monitor_page(ui),
                             Page::History => self.history_page(ui),
                             Page::Export => self.export_page(ui),
-                            Page::About => self.about_page(ui),
                         }
                         ui.add_space(12.0);
                     });
@@ -892,16 +820,7 @@ impl SeexApp {
                 ));
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(if state.monitoring {
-                            "● Listening"
-                        } else {
-                            "● Paused"
-                        })
-                        .color(if state.monitoring {
-                            success()
-                        } else {
-                            danger()
-                        }),
+                        RichText::new("Copyright (c) Ref42. All rights reserved.").color(muted()),
                     );
                 });
             }
@@ -1035,74 +954,6 @@ fn mode_button(ui: &mut Ui, mode: &mut String, value: &str, label: &str) {
     if ui.selectable_label(mode == value, label).clicked() {
         *mode = value.to_string();
     }
-}
-
-fn app_version() -> &'static str {
-    concat!("v", env!("CARGO_PKG_VERSION"))
-}
-
-fn about_identity_row(
-    ui: &mut Ui,
-    texture: &egui::TextureHandle,
-    light_tile: bool,
-    title: &str,
-    description: &str,
-    link: Option<(&str, &str)>,
-) {
-    ui.horizontal(|ui| {
-        logo_tile(ui, texture, light_tile);
-        ui.add_space(22.0);
-        ui.vertical(|ui| {
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new(title)
-                    .size(scaled_font(30.0))
-                    .strong()
-                    .color(text_color()),
-            );
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(description)
-                    .size(scaled_font(22.0))
-                    .color(muted()),
-            );
-            ui.add_space(12.0);
-            if let Some((label, target)) = link {
-                if target.starts_with("http") {
-                    ui.hyperlink_to(label, target);
-                } else {
-                    ui.label(RichText::new(format!("{label} {target}")).color(muted()));
-                }
-            }
-        });
-    });
-}
-
-fn logo_tile(ui: &mut Ui, texture: &egui::TextureHandle, light_tile: bool) {
-    let size = Vec2::new(104.0, 104.0);
-    let pad = Vec2::splat(12.0);
-    let tile_size = size + pad * 2.0;
-    let (rect, _) = ui.allocate_exact_size(tile_size, egui::Sense::hover());
-    let fill = if light_tile {
-        Color32::from_rgb(248, 248, 246)
-    } else {
-        surface()
-    };
-    ui.painter().rect(
-        rect,
-        8.0,
-        fill,
-        Stroke::new(1.0, border()),
-        egui::StrokeKind::Inside,
-    );
-
-    let image_rect = egui::Rect::from_center_size(rect.center(), size);
-    ui.painter().image(
-        texture.id(),
-        image_rect,
-        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
-        Color32::WHITE,
-    );
 }
 
 fn scaled_font(size: f32) -> f32 {
