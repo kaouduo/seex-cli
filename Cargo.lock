@@ -3491,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "seex"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "arboard",
  "chrono",
@@ -3505,6 +3505,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 

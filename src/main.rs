@@ -27,6 +27,8 @@ const FONT_SCALE_FROM_CURRENT: f32 = 0.75;
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
 
 fn main() -> eframe::Result {
+    set_windows_app_id();
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size(Vec2::new(1080.0, 900.0))
@@ -37,11 +39,33 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "SeEx",
+        app_title(),
         options,
         Box::new(|cc| Ok(Box::new(SeexApp::new(cc)))),
     )
 }
+
+fn app_title() -> &'static str {
+    concat!("SeEx ", env!("CARGO_PKG_VERSION"))
+}
+
+#[cfg(windows)]
+fn set_windows_app_id() {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let app_id: Vec<u16> = OsStr::new("Ref42.SeEx")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        let _ =
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr());
+    }
+}
+
+#[cfg(not(windows))]
+fn set_windows_app_id() {}
 
 fn load_app_icon() -> egui::IconData {
     let mut image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
