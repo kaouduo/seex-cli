@@ -39,15 +39,9 @@ Linux release binaries may still need common desktop runtime libraries from the 
 
 ## Build Locally
 
-Install Rust stable first:
-
-```powershell
-rustup toolchain install stable
-```
-
 Windows:
 
-```powershell
+```bash
 cargo build --release --locked --bin seex
 ```
 
