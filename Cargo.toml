@@ -1,0 +1,20 @@
+[package]
+name = "seex"
+version = "1.0.12"
+edition = "2024"
+description = "A clipboard event tracker and EDA library exporter."
+license-file = "LICENSE"
+
+[dependencies]
+arboard = "3.6.1"
+chrono = "0.4.45"
+dark-light = "2.0.0"
+directories = "6.0.0"
+eframe = "0.35.0"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+npnp = { git = "https://github.com/ref42/npnp", tag = "v1.0.6" }
+regex = "1.13.1"
+rfd = "0.17.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.53.0", features = ["rt-multi-thread"] }

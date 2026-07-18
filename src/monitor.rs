@@ -1,0 +1,392 @@
+use arboard::Clipboard;
+use chrono::Local;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+use crate::extract::extract_lcsc_ids;
+
+pub fn default_save_path(filename: &str) -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(filename)))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| filename.to_string())
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct MatchedEntry {
+    pub lcsc_id: String,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub count: usize,
+    pub source_text: String,
+}
+
+#[derive(Clone)]
+pub struct ExportProgressState {
+    pub determinate: bool,
+    pub current: usize,
+    pub total: usize,
+    pub message: String,
+}
+
+pub struct MonitorState {
+    pub last_content: String,
+    pub history: Vec<(String, String)>,
+    pub matched: Vec<MatchedEntry>,
+    pub keyword: String,
+    pub initialized: bool,
+    pub monitoring: bool,
+    pub match_debug_log: Vec<String>,
+    pub npnp_target: String,
+    pub npnp_output_path: String,
+    pub npnp_last_result: Option<String>,
+    pub npnp_running: bool,
+    pub npnp_progress: Option<ExportProgressState>,
+    pub npnp_mode: String,
+    pub npnp_kicad_mode: String,
+    pub npnp_merge: bool,
+    pub npnp_append: bool,
+    pub npnp_library_name: String,
+    pub npnp_parallel: usize,
+    pub npnp_continue_on_error: bool,
+    pub npnp_lcsc_english: bool,
+    pub npnp_force: bool,
+    pub npnp_project_relative: bool,
+    pub matched_save_path: String,
+    pub bom_language: String,
+    pub bom_running: bool,
+    pub bom_last_result: Option<String>,
+}
+
+impl MonitorState {
+    pub fn new() -> Self {
+        Self {
+            last_content: String::new(),
+            history: Vec::new(),
+            matched: Vec::new(),
+            keyword: String::new(),
+            initialized: false,
+            monitoring: true,
+            match_debug_log: Vec::new(),
+            npnp_target: "altium".to_string(),
+            npnp_output_path: "npnp_export".to_string(),
+            npnp_last_result: None,
+            npnp_running: false,
+            npnp_progress: None,
+            npnp_mode: "full".to_string(),
+            npnp_kicad_mode: "full".to_string(),
+            npnp_merge: false,
+            npnp_append: false,
+            npnp_library_name: "SeExMerged".to_string(),
+            npnp_parallel: 4,
+            npnp_continue_on_error: true,
+            npnp_lcsc_english: false,
+            npnp_force: false,
+            npnp_project_relative: false,
+            matched_save_path: default_save_path("matched.csv"),
+            bom_language: "chinese".to_string(),
+            bom_running: false,
+            bom_last_result: None,
+        }
+    }
+
+    pub fn add_debug_log(&mut self, msg: String) {
+        self.match_debug_log.insert(0, msg);
+        if self.match_debug_log.len() > 50 {
+            self.match_debug_log.pop();
+        }
+    }
+
+    pub fn set_keyword(&mut self, keyword: String) {
+        self.add_debug_log(format!("Keyword set: [{}]", &keyword));
+        self.keyword = keyword;
+        self.rematch_history();
+    }
+
+    fn rematch_history(&mut self) {
+        if self.keyword.is_empty() {
+            return;
+        }
+        let existing: HashSet<String> = self
+            .matched
+            .iter()
+            .map(|entry| entry.lcsc_id.clone())
+            .collect();
+        let mut new_matches: Vec<MatchedEntry> = Vec::new();
+        for (time, content) in &self.history {
+            for extracted in extract_lcsc_ids(content) {
+                if !existing.contains(&extracted)
+                    && !new_matches.iter().any(|entry| entry.lcsc_id == extracted)
+                {
+                    new_matches.push(MatchedEntry {
+                        lcsc_id: extracted,
+                        first_seen: time.clone(),
+                        last_seen: time.clone(),
+                        count: 1,
+                        source_text: content.clone(),
+                    });
+                }
+            }
+        }
+        if !new_matches.is_empty() {
+            let count = new_matches.len();
+            for item in new_matches.into_iter().rev() {
+                self.matched.insert(0, item);
+            }
+            if self.matched.len() > 100 {
+                self.matched.truncate(100);
+            }
+            self.add_debug_log(format!("Rematch: found {} new results from history", count));
+        }
+    }
+
+    pub fn process_clipboard_change(&mut self, content: String) -> bool {
+        if !self.monitoring {
+            return false;
+        }
+
+        let trimmed = content.trim().to_string();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        if !self.initialized {
+            self.last_content = trimmed;
+            self.initialized = true;
+            self.add_debug_log("Listener initialized".to_string());
+            return false;
+        }
+
+        if trimmed == self.last_content {
+            return false;
+        }
+
+        self.last_content = trimmed.clone();
+        let timestamp = Local::now().format("%H:%M:%S").to_string();
+        self.add_debug_log(format!(
+            "New content: {}",
+            trimmed.chars().take(50).collect::<String>()
+        ));
+
+        self.history.insert(0, (timestamp.clone(), trimmed.clone()));
+        if self.history.len() > 50 {
+            self.history.pop();
+        }
+
+        let extracted_ids = extract_lcsc_ids(&trimmed);
+        if extracted_ids.is_empty() {
+            self.add_debug_log("No match found".to_string());
+        } else {
+            let mut new_count = 0usize;
+            let mut existing_count = 0usize;
+            for extracted in extracted_ids {
+                if let Some(entry) = self
+                    .matched
+                    .iter_mut()
+                    .find(|entry| entry.lcsc_id == extracted)
+                {
+                    entry.last_seen = timestamp.clone();
+                    entry.count += 1;
+                    entry.source_text = trimmed.clone();
+                    existing_count += 1;
+                } else {
+                    self.matched.insert(
+                        0,
+                        MatchedEntry {
+                            lcsc_id: extracted,
+                            first_seen: timestamp.clone(),
+                            last_seen: timestamp.clone(),
+                            count: 1,
+                            source_text: trimmed.clone(),
+                        },
+                    );
+                    new_count += 1;
+                    if self.matched.len() > 200 {
+                        self.matched.pop();
+                    }
+                }
+            }
+            self.add_debug_log(format!(
+                "Matched {} IDs: {} new, {} already known",
+                new_count + existing_count,
+                new_count,
+                existing_count
+            ));
+        }
+        true
+    }
+
+    pub fn set_npnp_output_path(&mut self, path: String) {
+        self.npnp_output_path = path;
+    }
+
+    pub fn set_npnp_target(&mut self, target: String) {
+        self.npnp_target = match target.trim().to_ascii_lowercase().as_str() {
+            "kicad" => "kicad".to_string(),
+            _ => "altium".to_string(),
+        };
+    }
+
+    pub fn set_npnp_mode(&mut self, mode: String) {
+        self.npnp_mode = match mode.trim().to_ascii_lowercase().as_str() {
+            "schlib" => "schlib".to_string(),
+            "pcblib" => "pcblib".to_string(),
+            _ => "full".to_string(),
+        };
+    }
+
+    pub fn set_npnp_kicad_mode(&mut self, mode: String) {
+        self.npnp_kicad_mode = match mode.trim().to_ascii_lowercase().as_str() {
+            "symbol" => "symbol".to_string(),
+            "footprint" => "footprint".to_string(),
+            "3d" => "3d".to_string(),
+            _ => "full".to_string(),
+        };
+    }
+
+    pub fn set_npnp_merge(&mut self, merge: bool) {
+        self.npnp_merge = merge;
+        if !merge {
+            self.npnp_append = false;
+        }
+    }
+
+    pub fn set_npnp_append(&mut self, append: bool) {
+        self.npnp_append = append;
+        if append {
+            self.npnp_merge = true;
+        }
+    }
+
+    pub fn set_npnp_library_name(&mut self, library_name: String) {
+        self.npnp_library_name = library_name;
+    }
+
+    pub fn set_npnp_parallel(&mut self, parallel: usize) {
+        self.npnp_parallel = parallel.max(1);
+    }
+
+    pub fn set_npnp_continue_on_error(&mut self, continue_on_error: bool) {
+        self.npnp_continue_on_error = continue_on_error;
+    }
+
+    pub fn set_npnp_lcsc_english(&mut self, lcsc_english: bool) {
+        self.npnp_lcsc_english = lcsc_english;
+    }
+
+    pub fn set_npnp_force(&mut self, force: bool) {
+        self.npnp_force = force;
+    }
+
+    pub fn set_npnp_project_relative(&mut self, project_relative: bool) {
+        self.npnp_project_relative = project_relative;
+    }
+
+    pub fn set_matched_save_path(&mut self, path: String) {
+        let trimmed = path.trim();
+        self.matched_save_path = if trimmed.is_empty() {
+            default_save_path("matched.csv")
+        } else {
+            trimmed.to_string()
+        };
+    }
+
+    pub fn set_bom_language(&mut self, language: String) {
+        self.bom_language = match language.trim().to_ascii_lowercase().as_str() {
+            "english" => "english".to_string(),
+            _ => "chinese".to_string(),
+        };
+        self.npnp_lcsc_english = self.bom_language == "english";
+    }
+
+    pub fn delete_history(&mut self, index: usize) {
+        if index < self.history.len() {
+            self.history.remove(index);
+        }
+    }
+
+    pub fn delete_matched(&mut self, index: usize) {
+        if index < self.matched.len() {
+            self.matched.remove(index);
+        }
+    }
+
+    pub fn clear_all(&mut self) {
+        self.history.clear();
+        self.matched.clear();
+        self.last_content.clear();
+        self.initialized = false;
+        self.match_debug_log.clear();
+        self.npnp_last_result = None;
+        self.npnp_running = false;
+        self.npnp_progress = None;
+        self.bom_last_result = None;
+        self.bom_running = false;
+    }
+
+    pub fn get_unique_ids(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.matched
+            .iter()
+            .filter(|entry| seen.insert(entry.lcsc_id.clone()))
+            .map(|entry| entry.lcsc_id.clone())
+            .collect()
+    }
+}
+
+pub struct MonitorHandle {
+    stop: Arc<AtomicBool>,
+    poll_thread: Option<JoinHandle<()>>,
+}
+
+impl MonitorHandle {
+    pub fn spawn(state: Arc<Mutex<MonitorState>>) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let state_poll = Arc::clone(&state);
+        let stop_poll = Arc::clone(&stop);
+
+        let poll_thread = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(500));
+            let mut clipboard: Option<Clipboard> = None;
+
+            while !stop_poll.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(300));
+
+                if clipboard.is_none() {
+                    clipboard = Clipboard::new().ok();
+                }
+
+                if let Some(ref mut clip) = clipboard {
+                    match clip.get_text() {
+                        Ok(content) => {
+                            if let Ok(mut s) = state_poll.lock() {
+                                s.process_clipboard_change(content);
+                            }
+                        }
+                        Err(_) => {
+                            clipboard = None;
+                        }
+                    }
+                }
+            }
+        });
+
+        Self {
+            stop,
+            poll_thread: Some(poll_thread),
+        }
+    }
+}
+
+impl Drop for MonitorHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.poll_thread.take() {
+            let _ = t.join();
+        }
+    }
+}
