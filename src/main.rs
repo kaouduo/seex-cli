@@ -98,16 +98,25 @@ fn load_app_icon() -> egui::IconData {
 }
 
 fn load_logo_texture(ctx: &Context) -> egui::TextureHandle {
-    let image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
-        .expect("embedded SeEx logo must decode")
+    load_image_texture(ctx, "seex-logo", include_bytes!("../assets/icons/seex.png"))
+}
+
+fn load_image_texture(ctx: &Context, name: &'static str, bytes: &[u8]) -> egui::TextureHandle {
+    let image = image::load_from_memory(bytes)
+        .expect("embedded image must decode")
         .into_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     let pixels = image.into_raw();
     ctx.load_texture(
-        "seex-logo",
+        name,
         egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
         egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)),
     )
+}
+
+fn fit_image_size(size: Vec2, max_size: Vec2) -> Vec2 {
+    let scale = (max_size.x / size.x).min(max_size.y / size.y).min(1.0);
+    size * scale
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -115,6 +124,7 @@ enum Page {
     Monitor,
     History,
     Export,
+    Donate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -127,6 +137,8 @@ struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
     seex_logo: egui::TextureHandle,
+    donate_pay: egui::TextureHandle,
+    donate_wechat: egui::TextureHandle,
     page: Page,
     lang: Lang,
     pin_on_top: bool,
@@ -152,11 +164,23 @@ impl SeexApp {
         let state = Arc::new(Mutex::new(initial));
         let monitor = MonitorHandle::spawn(Arc::clone(&state));
         let seex_logo = load_logo_texture(&cc.egui_ctx);
+        let donate_pay = load_image_texture(
+            &cc.egui_ctx,
+            "donate-pay",
+            include_bytes!("../assets/donate/pay1.jpg"),
+        );
+        let donate_wechat = load_image_texture(
+            &cc.egui_ctx,
+            "donate-wechat",
+            include_bytes!("../assets/donate/pay2.jpg"),
+        );
 
         Self {
             state,
             _monitor: monitor,
             seex_logo,
+            donate_pay,
+            donate_wechat,
             page: Page::Monitor,
             lang: Lang::En,
             pin_on_top: true,
@@ -189,6 +213,7 @@ impl SeexApp {
             self.nav_item(ui, Page::Monitor, self.t("Monitor", "监听"));
             self.nav_item(ui, Page::History, self.t("History", "历史"));
             self.nav_item(ui, Page::Export, self.t("Export", "导出"));
+            self.nav_item(ui, Page::Donate, self.t("Donate", "赞助"));
 
             ui.add_space((ui.available_width() - RIGHT_CONTROLS_WIDTH).max(12.0));
             self.language_toggle(ui);
@@ -745,6 +770,20 @@ impl SeexApp {
         }
     }
 
+    fn donate_page(&self, ui: &mut Ui) {
+        ui.columns(2, |columns| {
+            for (column, texture) in columns
+                .iter_mut()
+                .zip([&self.donate_pay, &self.donate_wechat])
+            {
+                column.vertical_centered(|ui| {
+                    let image_size = fit_image_size(texture.size_vec2(), Vec2::new(420.0, 620.0));
+                    ui.image((texture.id(), image_size));
+                });
+            }
+        });
+    }
+
     fn language_toggle(&mut self, ui: &mut Ui) {
         if top_bar_button(ui, 72.0, "EN", self.lang == Lang::En).clicked() {
             self.lang = Lang::En;
@@ -842,6 +881,7 @@ impl eframe::App for SeexApp {
                             Page::Monitor => self.monitor_page(ui),
                             Page::History => self.history_page(ui),
                             Page::Export => self.export_page(ui),
+                            Page::Donate => self.donate_page(ui),
                         }
                         ui.add_space(12.0);
                     });
