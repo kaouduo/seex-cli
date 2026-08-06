@@ -11,6 +11,7 @@ pub struct AppConfig {
     #[serde(alias = "syft")]
     pub export: ExportConfig,
     pub monitor: MonitorConfig,
+    pub ui_language: String,
 }
 
 impl Default for AppConfig {
@@ -18,6 +19,7 @@ impl Default for AppConfig {
         Self {
             export: ExportConfig::default(),
             monitor: MonitorConfig::default(),
+            ui_language: "english".to_string(),
         }
     }
 }

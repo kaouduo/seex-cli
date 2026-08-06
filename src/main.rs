@@ -182,7 +182,11 @@ impl SeexApp {
             donate_pay,
             donate_wechat,
             page: Page::Monitor,
-            lang: Lang::En,
+            lang: if config.ui_language.eq_ignore_ascii_case("chinese") {
+                Lang::Zh
+            } else {
+                Lang::En
+            },
             pin_on_top: true,
             show_matched: true,
             show_history: true,
@@ -775,9 +779,11 @@ impl SeexApp {
     fn language_toggle(&mut self, ui: &mut Ui) {
         if top_bar_button(ui, 72.0, "EN", self.lang == Lang::En).clicked() {
             self.lang = Lang::En;
+            self.save_config();
         }
         if top_bar_button(ui, 72.0, "中文", self.lang == Lang::Zh).clicked() {
             self.lang = Lang::Zh;
+            self.save_config();
         }
     }
 
@@ -808,7 +814,7 @@ impl SeexApp {
 
     fn save_config(&self) {
         if let Ok(state) = self.state.lock() {
-            snapshot_config(&state).save();
+            snapshot_config(&state, self.lang).save();
         }
     }
 
@@ -999,7 +1005,7 @@ fn apply_config_to_state(config: &AppConfig, state: &mut MonitorState) {
     state.set_bom_language(config.monitor.bom_language.clone());
 }
 
-fn snapshot_config(state: &MonitorState) -> AppConfig {
+fn snapshot_config(state: &MonitorState, language: Lang) -> AppConfig {
     AppConfig {
         export: ExportConfig {
             target: state.export_target.clone(),
@@ -1017,6 +1023,10 @@ fn snapshot_config(state: &MonitorState) -> AppConfig {
         monitor: MonitorConfig {
             matched_save_path: state.matched_save_path.clone(),
             bom_language: state.bom_language.clone(),
+        },
+        ui_language: match language {
+            Lang::En => "english".to_string(),
+            Lang::Zh => "chinese".to_string(),
         },
     }
 }
