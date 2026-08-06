@@ -327,8 +327,10 @@ impl MonitorState {
         let mut seen = HashSet::new();
         self.matched
             .iter()
-            .filter(|entry| seen.insert(entry.lcsc_id.clone()))
-            .map(|entry| entry.lcsc_id.clone())
+            .filter_map(|entry| {
+                let id = entry.lcsc_id.trim().to_ascii_uppercase();
+                (!id.is_empty() && seen.insert(id.clone())).then_some(id)
+            })
             .collect()
     }
 }
@@ -383,5 +385,33 @@ impl Drop for MonitorHandle {
         if let Some(t) = self.poll_thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MatchedEntry, MonitorState};
+
+    #[test]
+    fn unique_ids_normalize_duplicate_entries() {
+        let mut state = MonitorState::new();
+        state.matched = vec![
+            MatchedEntry {
+                lcsc_id: "C2040".to_string(),
+                first_seen: String::new(),
+                last_seen: String::new(),
+                count: 1,
+                source_text: String::new(),
+            },
+            MatchedEntry {
+                lcsc_id: " c2040 ".to_string(),
+                first_seen: String::new(),
+                last_seen: String::new(),
+                count: 1,
+                source_text: String::new(),
+            },
+        ];
+
+        assert_eq!(state.get_unique_ids(), vec!["C2040"]);
     }
 }
