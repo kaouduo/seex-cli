@@ -33,6 +33,7 @@ use crate::config::{AppConfig, ExportConfig, MonitorConfig};
 
 const PATTERN_QUICK: &str = "regex:(?m)^(C\\d{3,})$";
 const PATTERN_FULL: &str = "regex:编号[：:]\\s*(C\\d+)";
+const RELEASES_API_URL: &str = "https://api.github.com/repos/ref42/seex/releases/latest";
 const FONT_SCALE_FROM_CURRENT: f32 = 0.75;
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
 
@@ -97,10 +98,6 @@ fn load_app_icon() -> egui::IconData {
     }
 }
 
-fn load_logo_texture(ctx: &Context) -> egui::TextureHandle {
-    load_image_texture(ctx, "seex-logo", include_bytes!("../assets/icons/seex.png"))
-}
-
 fn load_image_texture(ctx: &Context, name: &'static str, bytes: &[u8]) -> egui::TextureHandle {
     let image = image::load_from_memory(bytes)
         .expect("embedded image must decode")
@@ -124,7 +121,7 @@ enum Page {
     Monitor,
     History,
     Export,
-    Donate,
+    More,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -133,10 +130,24 @@ enum Lang {
     Zh,
 }
 
+#[derive(Clone, Default)]
+struct UpdateState {
+    checking: bool,
+    checked: bool,
+    latest_version: Option<String>,
+    release_url: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    html_url: String,
+}
+
 struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
-    seex_logo: egui::TextureHandle,
     donate_pay: egui::TextureHandle,
     donate_wechat: egui::TextureHandle,
     page: Page,
@@ -148,6 +159,7 @@ struct SeexApp {
     match_full: bool,
     clear_confirm: bool,
     last_theme_check: Instant,
+    update_state: Arc<Mutex<UpdateState>>,
 }
 
 impl SeexApp {
@@ -163,7 +175,6 @@ impl SeexApp {
 
         let state = Arc::new(Mutex::new(initial));
         let monitor = MonitorHandle::spawn(Arc::clone(&state));
-        let seex_logo = load_logo_texture(&cc.egui_ctx);
         let donate_pay = load_image_texture(
             &cc.egui_ctx,
             "donate-pay",
@@ -178,7 +189,6 @@ impl SeexApp {
         Self {
             state,
             _monitor: monitor,
-            seex_logo,
             donate_pay,
             donate_wechat,
             page: Page::Monitor,
@@ -194,6 +204,7 @@ impl SeexApp {
             match_full: true,
             clear_confirm: false,
             last_theme_check: Instant::now(),
+            update_state: Arc::new(Mutex::new(UpdateState::default())),
         }
     }
 
@@ -212,12 +223,10 @@ impl SeexApp {
         ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
         ui.horizontal(|ui| {
             ui.set_height(ROW_HEIGHT);
-            brand_lockup(ui, &self.seex_logo);
-            top_bar_separator(ui, ROW_HEIGHT);
             self.nav_item(ui, Page::Monitor, self.t("Monitor", "监听"));
             self.nav_item(ui, Page::History, self.t("History", "历史"));
             self.nav_item(ui, Page::Export, self.t("Export", "导出"));
-            self.nav_item(ui, Page::Donate, self.t("Donate", "赞助"));
+            self.nav_item(ui, Page::More, self.t("More", "更多"));
 
             ui.add_space((ui.available_width() - RIGHT_CONTROLS_WIDTH).max(12.0));
             self.language_toggle(ui);
@@ -762,7 +771,61 @@ impl SeexApp {
         }
     }
 
-    fn donate_page(&self, ui: &mut Ui) {
+    fn more_page(&mut self, ui: &mut Ui) {
+        section(ui, |ui| {
+            section_header(
+                ui,
+                self.t("Updates", "更新"),
+                self.t("Keep SeEx up to date", "检查 SeEx 是否有新版本"),
+            );
+            ui.add_space(8.0);
+
+            let update = self
+                .update_state
+                .lock()
+                .map(|state| state.clone())
+                .unwrap_or_default();
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "{}: {}",
+                    self.t("Current version", "当前版本"),
+                    env!("CARGO_PKG_VERSION")
+                ));
+                if update.checking {
+                    ui.spinner();
+                    ui.label(self.t("Checking...", "检查中..."));
+                } else if ui.button(self.t("Check for updates", "检查更新")).clicked() {
+                    self.start_update_check(ui.ctx());
+                }
+            });
+
+            if let Some(error) = update.error {
+                ui.label(RichText::new(error).color(Color32::from_rgb(190, 70, 70)));
+            } else if let Some(latest) = update.latest_version {
+                if version_is_newer(&latest, env!("CARGO_PKG_VERSION")) {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{}: {}",
+                                self.t("Update available", "发现新版本"),
+                                latest
+                            ))
+                            .color(Color32::from_rgb(35, 145, 85)),
+                        );
+                        if let Some(url) = update.release_url {
+                            ui.hyperlink_to(self.t("Download update", "下载更新"), url);
+                        }
+                    });
+                } else if update.checked {
+                    ui.label(
+                        RichText::new(self.t("You are up to date.", "当前已是最新版本。"))
+                            .color(Color32::from_rgb(35, 145, 85)),
+                    );
+                }
+            }
+        });
+
+        ui.add_space(12.0);
         ui.columns(2, |columns| {
             for (column, texture) in columns
                 .iter_mut()
@@ -773,6 +836,56 @@ impl SeexApp {
                     ui.image((texture.id(), image_size));
                 });
             }
+        });
+    }
+
+    fn start_update_check(&self, ctx: &Context) {
+        if let Ok(mut state) = self.update_state.lock() {
+            if state.checking {
+                return;
+            }
+            *state = UpdateState {
+                checking: true,
+                ..UpdateState::default()
+            };
+        }
+
+        let state = Arc::clone(&self.update_state);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<GitHubRelease, String> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|error| error.to_string())?;
+                runtime.block_on(async {
+                    reqwest::Client::new()
+                        .get(RELEASES_API_URL)
+                        .header("User-Agent", "SeEx")
+                        .send()
+                        .await
+                        .map_err(|error| error.to_string())?
+                        .error_for_status()
+                        .map_err(|error| error.to_string())?
+                        .json::<GitHubRelease>()
+                        .await
+                        .map_err(|error| error.to_string())
+                })
+            })();
+
+            if let Ok(mut state) = state.lock() {
+                state.checking = false;
+                state.checked = true;
+                match result {
+                    Ok(release) => {
+                        state.latest_version =
+                            Some(release.tag_name.trim_start_matches('v').to_string());
+                        state.release_url = Some(release.html_url);
+                    }
+                    Err(error) => state.error = Some(format!("Update check failed: {error}")),
+                }
+            }
+            ctx.request_repaint();
         });
     }
 
@@ -875,7 +988,7 @@ impl eframe::App for SeexApp {
                             Page::Monitor => self.monitor_page(ui),
                             Page::History => self.history_page(ui),
                             Page::Export => self.export_page(ui),
-                            Page::Donate => self.donate_page(ui),
+                            Page::More => self.more_page(ui),
                         }
                         ui.add_space(12.0);
                     });
@@ -1129,36 +1242,15 @@ fn scaled_font(size: f32) -> f32 {
     size * FONT_SCALE_FROM_CURRENT
 }
 
-fn brand_lockup(ui: &mut Ui, texture: &egui::TextureHandle) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(132.0, 42.0), egui::Sense::hover());
-    let icon_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.left() + 23.0, rect.center().y),
-        Vec2::splat(32.0),
-    );
-    ui.painter().image(
-        texture.id(),
-        icon_rect,
-        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-        Color32::WHITE,
-    );
-    ui.painter().text(
-        egui::pos2(icon_rect.right() + 10.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "SeEx",
-        FontId::new(scaled_font(30.0), FontFamily::Proportional),
-        text_color(),
-    );
-}
-
-fn top_bar_separator(ui: &mut Ui, height: f32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(8.0, height), egui::Sense::hover());
-    ui.painter().line_segment(
-        [
-            egui::pos2(rect.center().x, rect.top()),
-            egui::pos2(rect.center().x, rect.bottom()),
-        ],
-        Stroke::new(1.0, border()),
-    );
+fn version_is_newer(latest: &str, current: &str) -> bool {
+    let parse = |version: &str| {
+        version
+            .trim_start_matches('v')
+            .split('.')
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+    parse(latest) > parse(current)
 }
 
 fn top_bar_button(ui: &mut Ui, width: f32, label: &str, selected: bool) -> egui::Response {
