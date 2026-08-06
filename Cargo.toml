@@ -5,6 +5,14 @@ edition = "2024"
 description = "A clipboard event tracker and EDA library exporter."
 license-file = "LICENSE"
 
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+
 [dependencies]
 arboard = "3.6.1"
 cfb = "0.14.0"
