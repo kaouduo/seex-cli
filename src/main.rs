@@ -457,34 +457,37 @@ impl SeexApp {
             }
 
             ui.add_space(8.0);
-            ScrollArea::vertical().max_height(230.0).show(ui, |ui| {
-                let mut delete_index = None;
-                for (idx, item) in items.iter().enumerate() {
-                    row_frame(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.monospace(RichText::new(&item.last_seen).color(muted()));
-                            ui.label(RichText::new(&item.lcsc_id).strong().color(primary()));
-                            count_chip_with_label(ui, "x", item.count, muted());
-                            ui.label(
-                                RichText::new(first_line(&item.source_text, 72)).color(muted()),
-                            );
-                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button(self.t("Delete", "删除")).clicked() {
-                                    delete_index = Some(idx);
-                                }
-                                if ui.small_button(self.t("Copy", "复制")).clicked() {
-                                    copy_to_clipboard(&item.lcsc_id);
-                                }
+            ScrollArea::vertical()
+                .max_height(list_height(ui, 0.24, 3, 54.0))
+                .min_scrolled_height(list_height(ui, 0.24, 3, 54.0))
+                .show(ui, |ui| {
+                    let mut delete_index = None;
+                    for (idx, item) in items.iter().enumerate() {
+                        row_frame(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.monospace(RichText::new(&item.last_seen).color(muted()));
+                                ui.label(RichText::new(&item.lcsc_id).strong().color(primary()));
+                                count_chip_with_label(ui, "x", item.count, muted());
+                                ui.label(
+                                    RichText::new(first_line(&item.source_text, 72)).color(muted()),
+                                );
+                                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button(self.t("Delete", "删除")).clicked() {
+                                        delete_index = Some(idx);
+                                    }
+                                    if ui.small_button(self.t("Copy", "复制")).clicked() {
+                                        copy_to_clipboard(&item.lcsc_id);
+                                    }
+                                });
                             });
                         });
-                    });
-                }
-                if let Some(idx) = delete_index {
-                    if let Ok(mut state) = self.state.lock() {
-                        state.delete_matched(idx);
                     }
-                }
-            });
+                    if let Some(idx) = delete_index {
+                        if let Ok(mut state) = self.state.lock() {
+                            state.delete_matched(idx);
+                        }
+                    }
+                });
         });
     }
 
@@ -518,30 +521,33 @@ impl SeexApp {
             }
 
             ui.add_space(8.0);
-            ScrollArea::vertical().show(ui, |ui| {
-                let mut delete_index = None;
-                for (idx, (time, content)) in history.iter().enumerate() {
-                    row_frame(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.monospace(RichText::new(time).color(muted()));
-                            ui.label(first_line(content, 110));
-                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button(self.t("Delete", "删除")).clicked() {
-                                    delete_index = Some(idx);
-                                }
-                                if ui.small_button(self.t("Copy", "复制")).clicked() {
-                                    copy_to_clipboard(content);
-                                }
+            ScrollArea::vertical()
+                .max_height(list_height(ui, 0.55, 6, 52.0))
+                .min_scrolled_height(list_height(ui, 0.55, 6, 52.0))
+                .show(ui, |ui| {
+                    let mut delete_index = None;
+                    for (idx, (time, content)) in history.iter().enumerate() {
+                        row_frame(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.monospace(RichText::new(time).color(muted()));
+                                ui.label(first_line(content, 110));
+                                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button(self.t("Delete", "删除")).clicked() {
+                                        delete_index = Some(idx);
+                                    }
+                                    if ui.small_button(self.t("Copy", "复制")).clicked() {
+                                        copy_to_clipboard(content);
+                                    }
+                                });
                             });
                         });
-                    });
-                }
-                if let Some(idx) = delete_index {
-                    if let Ok(mut state) = self.state.lock() {
-                        state.delete_history(idx);
                     }
-                }
-            });
+                    if let Some(idx) = delete_index {
+                        if let Ok(mut state) = self.state.lock() {
+                            state.delete_history(idx);
+                        }
+                    }
+                });
         });
     }
 
@@ -665,26 +671,28 @@ impl SeexApp {
                     }
                 });
 
-                if color_setting(
-                    ui,
-                    self.t("Stroke color:", "描边颜色:"),
-                    &mut schematic_stroke_color,
-                    &mut schematic_stroke_hex,
-                    0,
-                    &mut active_color_picker,
-                ) {
-                    save_config = true;
-                }
-                if color_setting(
-                    ui,
-                    self.t("Fill color:", "填充颜色:"),
-                    &mut schematic_fill_color,
-                    &mut schematic_fill_hex,
-                    1,
-                    &mut active_color_picker,
-                ) {
-                    save_config = true;
-                }
+                ui.horizontal(|ui| {
+                    if color_setting(
+                        ui,
+                        self.t("Stroke color:", "描边颜色:"),
+                        &mut schematic_stroke_color,
+                        &mut schematic_stroke_hex,
+                        0,
+                        &mut active_color_picker,
+                    ) {
+                        save_config = true;
+                    }
+                    if color_setting(
+                        ui,
+                        self.t("Fill color:", "填充颜色:"),
+                        &mut schematic_fill_color,
+                        &mut schematic_fill_hex,
+                        1,
+                        &mut active_color_picker,
+                    ) {
+                        save_config = true;
+                    }
+                });
 
                 ui.horizontal(|ui| {
                     fixed_label(ui, self.t("Export directory:", "导出目录:"));
@@ -1280,6 +1288,15 @@ fn row_frame(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
         .inner_margin(Margin::symmetric(12, 8))
         .show(ui, add_contents);
     ui.add_space(6.0);
+}
+
+fn list_height(ui: &Ui, viewport_fraction: f32, minimum_rows: usize, row_height: f32) -> f32 {
+    let viewport_height = ui.ctx().viewport_rect().height();
+    let target_height = viewport_height * viewport_fraction;
+    let minimum_height = minimum_rows as f32 * row_height;
+    target_height
+        .max(minimum_height)
+        .min((viewport_height * 0.72).max(minimum_height))
 }
 
 fn section_header(ui: &mut Ui, title: &str, desc: &str) {
