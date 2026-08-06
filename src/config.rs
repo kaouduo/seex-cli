@@ -9,14 +9,14 @@ const CONFIG_FILENAME: &str = "export_config.json";
 #[serde(default)]
 pub struct AppConfig {
     #[serde(alias = "syft")]
-    pub npnp: NpnpConfig,
+    pub export: ExportConfig,
     pub monitor: MonitorConfig,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            npnp: NpnpConfig::default(),
+            export: ExportConfig::default(),
             monitor: MonitorConfig::default(),
         }
     }
@@ -40,7 +40,7 @@ impl Default for MonitorConfig {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct NpnpConfig {
+pub struct ExportConfig {
     pub target: String,
     pub output_path: String,
     pub mode: String,
@@ -55,11 +55,11 @@ pub struct NpnpConfig {
     pub project_relative: bool,
 }
 
-impl Default for NpnpConfig {
+impl Default for ExportConfig {
     fn default() -> Self {
         Self {
             target: "altium".to_string(),
-            output_path: "npnp_export".to_string(),
+            output_path: "export".to_string(),
             mode: "full".to_string(),
             kicad_mode: "full".to_string(),
             merge: false,

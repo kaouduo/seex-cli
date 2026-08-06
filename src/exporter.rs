@@ -1,21 +1,20 @@
-use ::npnp::LcedaClient;
-use ::npnp::batch::{BatchOptions, BatchSummary, export_batch};
-use ::npnp::cli::KicadVersion;
-use ::npnp::kicad::{
+use crate::batch::{BatchOptions, BatchSummary, export_batch};
+use crate::cli::KicadVersion;
+use crate::kicad::{
     KicadBatchOptions, KicadBatchSummary, KicadExportOptions, KicadLibraryOptions,
     export_kicad_batch,
 };
+use crate::lceda::LcedaClient;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::monitor::{ExportProgressState, MonitorState};
 
 const DEFAULT_LIBRARY_NAME: &str = "SeExMerged";
-const DEFAULT_OUTPUT_DIR: &str = "npnp_export";
+const DEFAULT_OUTPUT_DIR: &str = "export_export";
 
 pub struct ExportRequest {
     pub ids: Vec<String>,
@@ -34,13 +33,13 @@ pub struct ExportRequest {
 
 pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
     if let Ok(mut s) = state.lock() {
-        s.npnp_running = true;
-        s.npnp_last_result = None;
-        s.npnp_progress = Some(ExportProgressState {
+        s.export_running = true;
+        s.export_last_result = None;
+        s.export_progress = Some(ExportProgressState {
             determinate: false,
             current: 0,
             total: req.ids.len(),
-            message: "Preparing npnp export...".to_string(),
+            message: "Preparing export export...".to_string(),
         });
     }
 
@@ -59,12 +58,8 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
             if !is_kicad_target(&req) {
                 let input_path = input_path
                     .as_ref()
-                    .ok_or_else(|| "missing npnp batch input path".to_string())?;
-                return match run_altium_cli(&req, input_path) {
-                    Ok(message) => Ok(message),
-                    Err(CliExportError::NotFound) => run_altium_api(&req, input_path, started_at),
-                    Err(err) => Err(err.to_string()),
-                };
+                    .ok_or_else(|| "missing export batch input path".to_string())?;
+                return run_altium_api(&req, input_path, started_at);
             }
 
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -89,9 +84,9 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
         };
 
         if let Ok(mut s) = state.lock() {
-            s.npnp_running = false;
-            s.npnp_progress = None;
-            s.npnp_last_result = Some(message.clone());
+            s.export_running = false;
+            s.export_progress = None;
+            s.export_last_result = Some(message.clone());
             s.add_debug_log(message);
         }
     });
@@ -105,7 +100,7 @@ fn set_progress(
     total: usize,
 ) {
     if let Ok(mut s) = state.lock() {
-        s.npnp_progress = Some(ExportProgressState {
+        s.export_progress = Some(ExportProgressState {
             determinate,
             current,
             total,
@@ -117,13 +112,13 @@ fn set_progress(
 fn running_message(req: &ExportRequest) -> String {
     let count = req.ids.len();
     if is_kicad_target(req) {
-        format!("Running npnp KiCad batch for {} items...", count)
+        format!("Running export KiCad batch for {} items...", count)
     } else if req.merge && req.append {
-        format!("Appending into merged npnp library ({} items)...", count)
+        format!("Appending into merged export library ({} items)...", count)
     } else if req.merge {
-        format!("Merging {} npnp items...", count)
+        format!("Merging {} export items...", count)
     } else {
-        format!("Running npnp batch for {} items...", count)
+        format!("Running export batch for {} items...", count)
     }
 }
 
@@ -133,7 +128,7 @@ fn create_temp_input_path() -> PathBuf {
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
     std::env::temp_dir().join(format!(
-        "seex_npnp_ids_{}_{}.txt",
+        "seex_export_ids_{}_{}.txt",
         std::process::id(),
         stamp
     ))
@@ -163,125 +158,6 @@ fn run_altium_api(
             .map_err(|e| e.to_string())?;
         Ok(format_altium_summary(req, &summary, started_at.elapsed()))
     })
-}
-
-fn run_altium_cli(req: &ExportRequest, input_path: &Path) -> Result<String, CliExportError> {
-    let mut command = npnp_cli_command();
-    configure_hidden_command(&mut command);
-    command
-        .arg("altium")
-        .arg("batch")
-        .arg("--input")
-        .arg(input_path)
-        .arg("--output")
-        .arg(normalize_output_path(&req.output_path));
-
-    match normalize_altium_mode(&req.mode) {
-        "schlib" => {
-            command.arg("--schlib");
-        }
-        "pcblib" => {
-            command.arg("--pcblib");
-        }
-        _ => {
-            command.arg("--full");
-        }
-    }
-
-    if req.merge {
-        command.arg("--merge");
-        command.arg("--library-name").arg(resolve_library_name(req));
-    }
-    if req.append && req.merge {
-        command.arg("--append");
-    }
-    if req.parallel > 0 {
-        command
-            .arg("--parallel")
-            .arg(req.parallel.max(1).to_string());
-    }
-    if req.continue_on_error {
-        command.arg("--continue-on-error");
-    }
-    if req.lcsc_english {
-        command.arg("--english-metadata");
-    }
-    if req.force {
-        command.arg("--force");
-    }
-
-    let started_at = Instant::now();
-    let output = command.output().map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            CliExportError::NotFound
-        } else {
-            CliExportError::Io(err.to_string())
-        }
-    })?;
-    let elapsed = started_at.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.success() {
-        Ok(format_altium_cli_summary(
-            req,
-            output.status,
-            elapsed,
-            &stdout,
-            &stderr,
-        ))
-    } else {
-        Err(CliExportError::Failed(format_command_output(
-            output.status,
-            elapsed,
-            &stdout,
-            &stderr,
-        )))
-    }
-}
-
-#[cfg(windows)]
-fn configure_hidden_command(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn configure_hidden_command(_command: &mut Command) {}
-
-fn npnp_cli_command() -> Command {
-    if let Ok(current_exe) = std::env::current_exe() {
-        for ancestor in current_exe.ancestors() {
-            let local_npnp = ancestor
-                .join("npnp")
-                .join("target")
-                .join("release")
-                .join(if cfg!(windows) { "npnp.exe" } else { "npnp" });
-            if local_npnp.exists() {
-                return Command::new(local_npnp);
-            }
-        }
-    }
-
-    Command::new("npnp")
-}
-
-enum CliExportError {
-    NotFound,
-    Io(String),
-    Failed(String),
-}
-
-impl std::fmt::Display for CliExportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => write!(f, "npnp executable was not found on PATH"),
-            Self::Io(err) => write!(f, "failed to run npnp CLI: {err}"),
-            Self::Failed(output) => write!(f, "npnp CLI failed\n{output}"),
-        }
-    }
 }
 
 fn build_batch_options(req: &ExportRequest, input_path: &PathBuf) -> BatchOptions {
@@ -389,7 +265,7 @@ fn format_altium_summary(req: &ExportRequest, summary: &BatchSummary, elapsed: D
         "Target: Altium".to_string(),
         format!("Elapsed: {}", format_duration(elapsed)),
         format!(
-            "npnp Altium batch complete. Total: {} | Skipped: {} | Success: {} | Failed: {}",
+            "export Altium batch complete. Total: {} | Skipped: {} | Success: {} | Failed: {}",
             summary.total, summary.skipped, summary.success, summary.failed,
         ),
     ];
@@ -433,48 +309,6 @@ fn format_altium_summary(req: &ExportRequest, summary: &BatchSummary, elapsed: D
     lines.join("\n")
 }
 
-fn format_altium_cli_summary(
-    req: &ExportRequest,
-    status: ExitStatus,
-    elapsed: Duration,
-    stdout: &str,
-    stderr: &str,
-) -> String {
-    let parsed = parse_altium_cli_output(stdout, stderr);
-    let mut lines = vec![
-        "Status: Success".to_string(),
-        "Target: Altium".to_string(),
-        format!("Elapsed: {}", format_duration(elapsed)),
-    ];
-
-    if let Some(summary) = parsed.summary {
-        lines.push(summary);
-    } else {
-        lines.push(format!("Exit: {}", status_label(status)));
-    }
-
-    lines.push(format!(
-        "Targets: {} | Merge: {} | Parallel: {}",
-        mode_label(req),
-        merge_label(req),
-        req.parallel.max(1),
-    ));
-
-    lines.push(format!(
-        "Output directory: {}",
-        normalize_output_path(&req.output_path)
-    ));
-
-    for path in parsed.generated_files {
-        lines.push(format!("Generated: {path}"));
-    }
-    if !parsed.failed_ids.is_empty() {
-        lines.push(format!("Failed IDs: {}", parsed.failed_ids.join(", ")));
-    }
-
-    lines.join("\n")
-}
-
 fn format_kicad_summary(
     req: &ExportRequest,
     summary: &KicadBatchSummary,
@@ -485,7 +319,7 @@ fn format_kicad_summary(
         "Target: KiCad".to_string(),
         format!("Elapsed: {}", format_duration(elapsed)),
         format!(
-            "npnp KiCad batch complete. Total: {} | Skipped: {} | Success: {} | Failed: {}",
+            "export KiCad batch complete. Total: {} | Skipped: {} | Success: {} | Failed: {}",
             summary.total, summary.skipped, summary.success, summary.failed,
         ),
     ];
@@ -539,106 +373,6 @@ fn format_kicad_summary(
     }
 
     lines.join("\n")
-}
-
-fn format_command_output(
-    status: ExitStatus,
-    elapsed: Duration,
-    stdout: &str,
-    stderr: &str,
-) -> String {
-    let parsed = parse_altium_cli_output(stdout, stderr);
-    let mut lines = vec![
-        "Status: Failed".to_string(),
-        format!("Exit: {}", status_label(status)),
-        format!("Elapsed: {}", format_duration(elapsed)),
-    ];
-
-    if let Some(summary) = parsed.summary {
-        lines.push(summary);
-    }
-    if !parsed.failed_ids.is_empty() {
-        lines.push(format!("Failed IDs: {}", parsed.failed_ids.join(", ")));
-    }
-    for line in parsed.error_lines {
-        lines.push(line);
-    }
-
-    lines.join("\n")
-}
-
-struct ParsedCliOutput {
-    summary: Option<String>,
-    generated_files: Vec<String>,
-    failed_ids: Vec<String>,
-    error_lines: Vec<String>,
-}
-
-fn parse_altium_cli_output(stdout: &str, stderr: &str) -> ParsedCliOutput {
-    let mut summary = None;
-    let mut generated_files = Vec::new();
-    let mut failed_ids = Vec::new();
-    let mut error_lines = Vec::new();
-
-    for line in clean_command_lines(stdout) {
-        if line.starts_with("Altium batch export complete.") {
-            summary = Some(line);
-        } else if let Some(path) = line.strip_prefix("Generated:") {
-            generated_files.push(path.trim().to_string());
-        } else if line.to_ascii_lowercase().starts_with("failed ids:") {
-            failed_ids.extend(crate::extract::extract_lcsc_ids(&line));
-        } else if line.starts_with("FAILED ") {
-            failed_ids.extend(crate::extract::extract_lcsc_ids(&line));
-            error_lines.push(line);
-        }
-    }
-
-    for line in clean_command_lines(stderr) {
-        if line.starts_with('[') || line.starts_with("Batch mode:") || line.starts_with("Output:") {
-            continue;
-        }
-        if line.starts_with("Library:") || line.starts_with("Append mode:") {
-            continue;
-        }
-        if line.starts_with("Writing merged library files") {
-            continue;
-        }
-        if line.starts_with("FAILED ") {
-            failed_ids.extend(crate::extract::extract_lcsc_ids(&line));
-            error_lines.push(line);
-        } else if line.to_ascii_lowercase().starts_with("failed ids:") {
-            failed_ids.extend(crate::extract::extract_lcsc_ids(&line));
-        } else if !line.trim().is_empty() {
-            error_lines.push(line);
-        }
-    }
-
-    failed_ids.sort();
-    failed_ids.dedup();
-
-    ParsedCliOutput {
-        summary,
-        generated_files,
-        failed_ids,
-        error_lines,
-    }
-}
-
-fn clean_command_lines(output: &str) -> Vec<String> {
-    output
-        .replace('\r', "\n")
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.trim().is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn status_label(status: ExitStatus) -> String {
-    match status.code() {
-        Some(code) => code.to_string(),
-        None => "terminated".to_string(),
-    }
 }
 
 fn format_duration(duration: Duration) -> String {

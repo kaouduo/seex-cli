@@ -132,11 +132,11 @@ impl BomRow {
 async fn load_bom_metadata(entries: &[monitor::MatchedEntry], language: &str) -> Vec<BomRow> {
     let english = language.eq_ignore_ascii_case("english");
     let lcsc_client = if english {
-        Some(::npnp::LcscClient::new())
+        Some(crate::lcsc::LcscClient::new())
     } else {
         None
     };
-    let lceda_client = ::npnp::LcedaClient::new();
+    let lceda_client = crate::lceda::LcedaClient::new();
     let mut rows = Vec::new();
     for entry in entries {
         let row = if let Some(client) = &lcsc_client {

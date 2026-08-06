@@ -2357,24 +2357,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
-name = "npnp"
-version = "1.0.11"
-source = "git+https://github.com/ref42/npnp?tag=v1.0.11#0034ca59b10fcb6ee8e863e06200d5d418e2c086"
-dependencies = [
- "cfb",
- "clap",
- "encoding_rs",
- "futures-util",
- "log",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3491,19 +3473,25 @@ dependencies = [
 
 [[package]]
 name = "seex"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "arboard",
+ "cfb",
  "chrono",
+ "clap",
  "dark-light",
  "directories",
  "eframe",
+ "encoding_rs",
+ "futures-util",
  "image",
- "npnp",
+ "log",
  "regex",
+ "reqwest",
  "rfd",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "windows-sys 0.61.2",
  "winresource",

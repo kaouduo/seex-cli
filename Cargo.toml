@@ -1,23 +1,29 @@
 [package]
 name = "seex"
-version = "1.0.18"
+version = "1.0.19"
 edition = "2024"
 description = "A clipboard event tracker and EDA library exporter."
 license-file = "LICENSE"
 
 [dependencies]
 arboard = "3.6.1"
+cfb = "0.14.0"
+clap = { version = "4.6.1", features = ["derive"] }
 chrono = "0.4.45"
 dark-light = "2.0.0"
 directories = "6.0.0"
+encoding_rs = "0.8.35"
 eframe = { version = "0.35.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+futures-util = "0.3.32"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-npnp = { git = "https://github.com/ref42/npnp", tag = "v1.0.11" }
+log = "0.4.33"
 regex = "1.13.1"
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tokio = { version = "1.53.0", features = ["rt-multi-thread"] }
+thiserror = "2.0.18"
+tokio = { version = "1.53.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }

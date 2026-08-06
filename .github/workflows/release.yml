@@ -1,13 +1,10 @@
-name: release
+name: build-release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       tag:
-        description: 'Release tag to build, for example v1.0.0'
+        description: Release tag to build
         required: true
         type: string
 
@@ -19,8 +16,7 @@ jobs:
     name: build ${{ matrix.asset_suffix }}
     runs-on: ${{ matrix.os }}
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
-      CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+      RELEASE_TAG: ${{ inputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,10 +53,10 @@ jobs:
             archive: tar.gz
 
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.CHECKOUT_REF }}
+          ref: refs/tags/${{ inputs.tag }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -72,33 +68,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config \
-            libssl-dev \
-            libx11-dev \
-            libxi-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libgl1-mesa-dev \
-            libegl1-mesa-dev \
-            libgtk-3-dev \
-            libdbus-1-dev \
-            libudev-dev
+            pkg-config libssl-dev libx11-dev libxi-dev libxcb1-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxcursor-dev libxrandr-dev libxinerama-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libgl1-mesa-dev \
+            libegl1-mesa-dev libgtk-3-dev libdbus-1-dev libudev-dev
 
-      - name: Install Windows installer tools
+      - name: Install Inno Setup
         if: runner.os == 'Windows' && matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh
-        run: |
-          choco install innosetup -y --no-progress
+        run: choco install innosetup -y --no-progress
 
-      - name: Run tests
+      - name: Test
         run: cargo test --locked --target ${{ matrix.target }}
 
       - name: Build release binary
@@ -109,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:RELEASE_TAG
-          $version = $tag.TrimStart("v")
+          $version = $tag.TrimStart('v')
           $name = "seex-$tag-${{ matrix.asset_suffix }}"
           $bin = "target\${{ matrix.target }}\release\${{ matrix.binary }}"
           $assets = New-Object System.Collections.Generic.List[string]
@@ -118,22 +99,21 @@ jobs:
           Copy-Item $bin $rawExe -Force
           $assets.Add($rawExe)
 
-          New-Item -ItemType Directory -Path "dist\$name" -Force
+          New-Item -ItemType Directory -Path "dist\$name" -Force | Out-Null
           Copy-Item $bin "dist\$name\"
           $archive = "$name.${{ matrix.archive }}"
           Compress-Archive -Path "dist\$name\*" -DestinationPath $archive -Force
           $assets.Add($archive)
 
-          if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
+          if ('${{ matrix.target }}' -eq 'x86_64-pc-windows-msvc') {
             $setupBase = "$name-setup"
-            $setupExe = "$setupBase.exe"
             $iss = "$setupBase.iss"
-            $issContent = @(
+            @(
               '[Setup]'
               'AppId={{A5AE338A-F870-4DB2-98A1-03C7B012A699}'
               'AppName=SeEx'
-              'AppVersion=' + $version
-              'AppVerName=SeEx ' + $version
+              "AppVersion=$version"
+              "AppVerName=SeEx $version"
               'AppPublisher=Ref42'
               'AppPublisherURL=https://github.com/ref42/seex'
               'AppSupportURL=https://github.com/ref42/seex'
@@ -144,15 +124,15 @@ jobs:
               'DefaultGroupName=SeEx'
               'DisableProgramGroupPage=yes'
               'OutputDir=.'
-              'OutputBaseFilename=' + $setupBase
+              "OutputBaseFilename=$setupBase"
               'SetupIconFile=assets\icons\seex.ico'
-              'UninstallDisplayName=SeEx ' + $version
+              "UninstallDisplayName=SeEx $version"
               'Compression=lzma'
               'SolidCompression=yes'
               'UninstallDisplayIcon={app}\seex.exe'
               ''
               '[Files]'
-              'Source: "' + $bin + '"; DestDir: "{app}"; Flags: ignoreversion'
+              "Source: `"$bin`"; DestDir: `"{app}`"; Flags: ignoreversion"
               ''
               '[Icons]'
               'Name: "{group}\SeEx"; Filename: "{app}\seex.exe"'
@@ -163,131 +143,89 @@ jobs:
               ''
               '[Run]'
               'Filename: "{app}\seex.exe"; Description: "Launch SeEx"; Flags: nowait postinstall skipifsilent'
-            )
-            $issContent | Set-Content -Path $iss -Encoding UTF8
-
-            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-            if (-not (Test-Path $iscc)) {
-              $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-              if (-not $isccCommand) {
-                throw "Inno Setup was installed, but ISCC.exe was not found."
-              }
-              $iscc = $isccCommand.Source
-            }
-            & $iscc $iss
-            $assets.Add($setupExe)
+            ) | Set-Content -Path $iss -Encoding UTF8
+            & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" $iss
+            $assets.Add("$setupBase.exe")
           }
 
-          "ASSETS<<EOF" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          foreach ($asset in $assets) {
-            $asset | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-          "EOF" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ASSETS<<EOF" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $assets | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          'EOF' | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Package Unix binary
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          tag="$RELEASE_TAG"
-          name="seex-$tag-${{ matrix.asset_suffix }}"
+          name="seex-${RELEASE_TAG}-${{ matrix.asset_suffix }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/$name/"
           asset="$name.${{ matrix.archive }}"
           tar -czf "$asset" -C dist "$name"
           echo "ASSETS=$asset" >> "$GITHUB_ENV"
 
-      - name: Upload workflow artifact
+      - name: Upload platform artifact
         uses: actions/upload-artifact@v7
         with:
-          name: seex-${{ env.RELEASE_TAG }}-${{ matrix.asset_suffix }}
-          path: ${{ env.ASSETS }}
+          name: seex-${{ inputs.tag }}-${{ matrix.asset_suffix }}
+          path: |
+            ${{ env.ASSETS }}
 
   build-linux-distro:
     name: build ${{ matrix.asset_suffix }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-26.04
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
-      CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+      RELEASE_TAG: ${{ inputs.tag }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-26.04
-            container: fedora:latest
-            target: x86_64-unknown-linux-gnu
+          - container: fedora:latest
             asset_suffix: fedora-x86_64
             install: dnf install -y git ca-certificates rust cargo gcc gcc-c++ make pkgconf-pkg-config openssl-devel libX11-devel libXi-devel libxcb-devel libXcursor-devel libXrandr-devel libXinerama-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel mesa-libGL-devel mesa-libEGL-devel gtk3-devel dbus-devel systemd-devel
-          - os: ubuntu-26.04-arm
-            container: fedora:latest
-            target: aarch64-unknown-linux-gnu
-            asset_suffix: fedora-aarch64
-            install: dnf install -y git ca-certificates rust cargo gcc gcc-c++ make pkgconf-pkg-config openssl-devel libX11-devel libXi-devel libxcb-devel libXcursor-devel libXrandr-devel libXinerama-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel mesa-libGL-devel mesa-libEGL-devel gtk3-devel dbus-devel systemd-devel
-          - os: ubuntu-26.04
-            container: archlinux:latest
-            target: x86_64-unknown-linux-gnu
+          - container: archlinux:latest
             asset_suffix: arch-x86_64
-            install: (grep -q "^DisableSandbox" /etc/pacman.conf || sed -i "/^\[options\]$/a DisableSandbox" /etc/pacman.conf) && pacman -Syu --noconfirm --needed git ca-certificates base-devel rust cargo pkgconf openssl libx11 libxi libxcb libxcursor libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3 dbus systemd-libs
-          - os: ubuntu-26.04-arm
-            container: menci/archlinuxarm:base-devel
-            target: aarch64-unknown-linux-gnu
-            asset_suffix: arch-aarch64
-            install: (grep -q "^DisableSandbox" /etc/pacman.conf || sed -i "/^\[options\]$/a DisableSandbox" /etc/pacman.conf) && pacman-key --init && pacman-key --populate archlinuxarm && pacman -Syu --noconfirm --needed git ca-certificates rust cargo pkgconf openssl libx11 libxi libxcb libxcursor libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3 dbus systemd-libs
+            install: sed -i '/^DisableSandbox$/d; /^\[options\]/a DisableSandbox' /etc/pacman.conf && pacman -Syu --noconfirm --needed git ca-certificates base-devel rust cargo pkgconf openssl libx11 libxi libxcb libxcursor libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3 dbus systemd-libs
 
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.CHECKOUT_REF }}
+          ref: refs/tags/${{ inputs.tag }}
 
       - name: Build in distro container
         shell: bash
         run: |
           set -euo pipefail
-          tag="$RELEASE_TAG"
-          asset_suffix="${{ matrix.asset_suffix }}"
-          target="${{ matrix.target }}"
-          container="${{ matrix.container }}"
-          name="seex-$tag-$asset_suffix"
+          name="seex-${RELEASE_TAG}-${{ matrix.asset_suffix }}"
           docker run --rm \
-            -v "$PWD:/work" \
-            -w /work \
-            -e CARGO_TARGET_DIR="target/$asset_suffix" \
-            -e RELEASE_TAG="$tag" \
-            -e ASSET_SUFFIX="$asset_suffix" \
+            -v "$PWD:/work" -w /work \
             -e PACKAGE_NAME="$name" \
-            -e TARGET="$target" \
-            "$container" \
-            bash -lc '${{ matrix.install }} && cargo test --locked --target "$TARGET" && cargo build --release --locked --target "$TARGET" --bin seex && mkdir -p "dist/$ASSET_SUFFIX/$PACKAGE_NAME" && cp "target/$ASSET_SUFFIX/$TARGET/release/seex" "dist/$ASSET_SUFFIX/$PACKAGE_NAME/"'
-          tar -czf "$name.tar.gz" -C "dist/$asset_suffix" "$name"
+            '${{ matrix.container }}' \
+            bash -lc '${{ matrix.install }} && cargo test --locked && cargo build --release --locked --bin seex && mkdir -p "dist/$PACKAGE_NAME" && cp target/release/seex "dist/$PACKAGE_NAME/"'
+          tar -czf "$name.tar.gz" -C dist "$name"
           echo "ASSETS=$name.tar.gz" >> "$GITHUB_ENV"
 
-      - name: Upload workflow artifact
+      - name: Upload distro artifact
         uses: actions/upload-artifact@v7
         with:
-          name: seex-${{ env.RELEASE_TAG }}-${{ matrix.asset_suffix }}
+          name: seex-${{ inputs.tag }}-${{ matrix.asset_suffix }}
           path: ${{ env.ASSETS }}
 
-  release:
-    name: publish release assets
-    runs-on: ubuntu-latest
-    needs:
-      - build
-      - build-linux-distro
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
-
+  publish:
+    name: publish GitHub release
+    runs-on: ubuntu-26.04
+    needs: [build, build-linux-distro]
     steps:
-      - name: Download build artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ inputs.tag }}
           files: release-assets/*
           generate_release_notes: true

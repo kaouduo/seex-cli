@@ -41,21 +41,21 @@ pub struct MonitorState {
     pub initialized: bool,
     pub monitoring: bool,
     pub match_debug_log: Vec<String>,
-    pub npnp_target: String,
-    pub npnp_output_path: String,
-    pub npnp_last_result: Option<String>,
-    pub npnp_running: bool,
-    pub npnp_progress: Option<ExportProgressState>,
-    pub npnp_mode: String,
-    pub npnp_kicad_mode: String,
-    pub npnp_merge: bool,
-    pub npnp_append: bool,
-    pub npnp_library_name: String,
-    pub npnp_parallel: usize,
-    pub npnp_continue_on_error: bool,
-    pub npnp_lcsc_english: bool,
-    pub npnp_force: bool,
-    pub npnp_project_relative: bool,
+    pub export_target: String,
+    pub export_output_path: String,
+    pub export_last_result: Option<String>,
+    pub export_running: bool,
+    pub export_progress: Option<ExportProgressState>,
+    pub export_mode: String,
+    pub export_kicad_mode: String,
+    pub export_merge: bool,
+    pub export_append: bool,
+    pub export_library_name: String,
+    pub export_parallel: usize,
+    pub export_continue_on_error: bool,
+    pub export_lcsc_english: bool,
+    pub export_force: bool,
+    pub export_project_relative: bool,
     pub matched_save_path: String,
     pub bom_language: String,
     pub bom_running: bool,
@@ -72,21 +72,21 @@ impl MonitorState {
             initialized: false,
             monitoring: true,
             match_debug_log: Vec::new(),
-            npnp_target: "altium".to_string(),
-            npnp_output_path: "npnp_export".to_string(),
-            npnp_last_result: None,
-            npnp_running: false,
-            npnp_progress: None,
-            npnp_mode: "full".to_string(),
-            npnp_kicad_mode: "full".to_string(),
-            npnp_merge: false,
-            npnp_append: false,
-            npnp_library_name: "SeExMerged".to_string(),
-            npnp_parallel: 4,
-            npnp_continue_on_error: false,
-            npnp_lcsc_english: false,
-            npnp_force: false,
-            npnp_project_relative: false,
+            export_target: "altium".to_string(),
+            export_output_path: "export_export".to_string(),
+            export_last_result: None,
+            export_running: false,
+            export_progress: None,
+            export_mode: "full".to_string(),
+            export_kicad_mode: "full".to_string(),
+            export_merge: false,
+            export_append: false,
+            export_library_name: "SeExMerged".to_string(),
+            export_parallel: 4,
+            export_continue_on_error: false,
+            export_lcsc_english: false,
+            export_force: false,
+            export_project_relative: false,
             matched_save_path: default_save_path("matched.csv"),
             bom_language: "chinese".to_string(),
             bom_running: false,
@@ -220,27 +220,27 @@ impl MonitorState {
         true
     }
 
-    pub fn set_npnp_output_path(&mut self, path: String) {
-        self.npnp_output_path = path;
+    pub fn set_export_output_path(&mut self, path: String) {
+        self.export_output_path = path;
     }
 
-    pub fn set_npnp_target(&mut self, target: String) {
-        self.npnp_target = match target.trim().to_ascii_lowercase().as_str() {
+    pub fn set_export_target(&mut self, target: String) {
+        self.export_target = match target.trim().to_ascii_lowercase().as_str() {
             "kicad" => "kicad".to_string(),
             _ => "altium".to_string(),
         };
     }
 
-    pub fn set_npnp_mode(&mut self, mode: String) {
-        self.npnp_mode = match mode.trim().to_ascii_lowercase().as_str() {
+    pub fn set_export_mode(&mut self, mode: String) {
+        self.export_mode = match mode.trim().to_ascii_lowercase().as_str() {
             "schlib" => "schlib".to_string(),
             "pcblib" => "pcblib".to_string(),
             _ => "full".to_string(),
         };
     }
 
-    pub fn set_npnp_kicad_mode(&mut self, mode: String) {
-        self.npnp_kicad_mode = match mode.trim().to_ascii_lowercase().as_str() {
+    pub fn set_export_kicad_mode(&mut self, mode: String) {
+        self.export_kicad_mode = match mode.trim().to_ascii_lowercase().as_str() {
             "symbol" => "symbol".to_string(),
             "footprint" => "footprint".to_string(),
             "3d" => "3d".to_string(),
@@ -248,42 +248,42 @@ impl MonitorState {
         };
     }
 
-    pub fn set_npnp_merge(&mut self, merge: bool) {
-        self.npnp_merge = merge;
+    pub fn set_export_merge(&mut self, merge: bool) {
+        self.export_merge = merge;
         if !merge {
-            self.npnp_append = false;
+            self.export_append = false;
         }
     }
 
-    pub fn set_npnp_append(&mut self, append: bool) {
-        self.npnp_append = append;
+    pub fn set_export_append(&mut self, append: bool) {
+        self.export_append = append;
         if append {
-            self.npnp_merge = true;
+            self.export_merge = true;
         }
     }
 
-    pub fn set_npnp_library_name(&mut self, library_name: String) {
-        self.npnp_library_name = library_name;
+    pub fn set_export_library_name(&mut self, library_name: String) {
+        self.export_library_name = library_name;
     }
 
-    pub fn set_npnp_parallel(&mut self, parallel: usize) {
-        self.npnp_parallel = parallel.max(1);
+    pub fn set_export_parallel(&mut self, parallel: usize) {
+        self.export_parallel = parallel.max(1);
     }
 
-    pub fn set_npnp_continue_on_error(&mut self, continue_on_error: bool) {
-        self.npnp_continue_on_error = continue_on_error;
+    pub fn set_export_continue_on_error(&mut self, continue_on_error: bool) {
+        self.export_continue_on_error = continue_on_error;
     }
 
-    pub fn set_npnp_lcsc_english(&mut self, lcsc_english: bool) {
-        self.npnp_lcsc_english = lcsc_english;
+    pub fn set_export_lcsc_english(&mut self, lcsc_english: bool) {
+        self.export_lcsc_english = lcsc_english;
     }
 
-    pub fn set_npnp_force(&mut self, force: bool) {
-        self.npnp_force = force;
+    pub fn set_export_force(&mut self, force: bool) {
+        self.export_force = force;
     }
 
-    pub fn set_npnp_project_relative(&mut self, project_relative: bool) {
-        self.npnp_project_relative = project_relative;
+    pub fn set_export_project_relative(&mut self, project_relative: bool) {
+        self.export_project_relative = project_relative;
     }
 
     pub fn set_matched_save_path(&mut self, path: String) {
@@ -300,7 +300,7 @@ impl MonitorState {
             "english" => "english".to_string(),
             _ => "chinese".to_string(),
         };
-        self.npnp_lcsc_english = self.bom_language == "english";
+        self.export_lcsc_english = self.bom_language == "english";
     }
 
     pub fn delete_history(&mut self, index: usize) {
@@ -321,9 +321,9 @@ impl MonitorState {
         self.last_content.clear();
         self.initialized = false;
         self.match_debug_log.clear();
-        self.npnp_last_result = None;
-        self.npnp_running = false;
-        self.npnp_progress = None;
+        self.export_last_result = None;
+        self.export_running = false;
+        self.export_progress = None;
         self.bom_last_result = None;
         self.bom_running = false;
     }

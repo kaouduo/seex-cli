@@ -1,10 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod altium;
+mod batch;
 mod bom;
+mod cli;
 mod config;
+mod easyeda;
+mod error;
+mod exporter;
 mod extract;
+mod kicad;
+mod lceda;
+mod lcsc;
+mod metadata;
 mod monitor;
-mod npnp;
+mod util;
 
 use std::sync::{
     Arc, Mutex,
@@ -19,7 +29,7 @@ use eframe::egui::{
 };
 use monitor::{MonitorHandle, MonitorState};
 
-use crate::config::{AppConfig, MonitorConfig, NpnpConfig};
+use crate::config::{AppConfig, ExportConfig, MonitorConfig};
 
 const PATTERN_QUICK: &str = "regex:(?m)^(C\\d{3,})$";
 const PATTERN_FULL: &str = "regex:编号[：:]\\s*(C\\d+)";
@@ -87,6 +97,19 @@ fn load_app_icon() -> egui::IconData {
     }
 }
 
+fn load_logo_texture(ctx: &Context) -> egui::TextureHandle {
+    let image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
+        .expect("embedded SeEx logo must decode")
+        .into_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let pixels = image.into_raw();
+    ctx.load_texture(
+        "seex-logo",
+        egui::ColorImage::from_rgba_unmultiplied(size, &pixels),
+        egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)),
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Monitor,
@@ -103,6 +126,7 @@ enum Lang {
 struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
+    seex_logo: egui::TextureHandle,
     page: Page,
     lang: Lang,
     pin_on_top: bool,
@@ -127,10 +151,12 @@ impl SeexApp {
 
         let state = Arc::new(Mutex::new(initial));
         let monitor = MonitorHandle::spawn(Arc::clone(&state));
+        let seex_logo = load_logo_texture(&cc.egui_ctx);
 
         Self {
             state,
             _monitor: monitor,
+            seex_logo,
             page: Page::Monitor,
             lang: Lang::En,
             pin_on_top: true,
@@ -151,20 +177,20 @@ impl SeexApp {
     }
 
     fn render_top_bar(&mut self, ui: &mut Ui) {
-        const ROW_HEIGHT: f32 = 44.0;
-        const RIGHT_CONTROLS_WIDTH: f32 = 390.0;
+        const ROW_HEIGHT: f32 = 42.0;
+        const RIGHT_CONTROLS_WIDTH: f32 = 380.0;
 
         ui.set_height(ROW_HEIGHT);
-        ui.spacing_mut().item_spacing = Vec2::new(10.0, 0.0);
+        ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
         ui.horizontal(|ui| {
             ui.set_height(ROW_HEIGHT);
-            top_bar_text(ui, 96.0, "SeEx", 30.0, primary(), true);
+            brand_lockup(ui, &self.seex_logo);
             top_bar_separator(ui, ROW_HEIGHT);
             self.nav_item(ui, Page::Monitor, self.t("Monitor", "监听"));
             self.nav_item(ui, Page::History, self.t("History", "历史"));
             self.nav_item(ui, Page::Export, self.t("Export", "导出"));
 
-            ui.add_space((ui.available_width() - RIGHT_CONTROLS_WIDTH).max(0.0));
+            ui.add_space((ui.available_width() - RIGHT_CONTROLS_WIDTH).max(12.0));
             self.language_toggle(ui);
             self.pin_toggle(ui);
             self.monitoring_label(ui);
@@ -173,17 +199,18 @@ impl SeexApp {
 
     fn nav_item(&mut self, ui: &mut Ui, page: Page, label: &'static str) {
         let selected = self.page == page;
-        if top_bar_button(ui, 132.0, label, selected).clicked() {
+        if top_bar_button(ui, 116.0, label, selected).clicked() {
             self.page = page;
         }
     }
 
     fn page_title(&self, ui: &mut Ui, title: &'static str, desc: &'static str) {
-        ui.horizontal(|ui| {
-            ui.heading(title);
+        ui.vertical(|ui| {
+            ui.heading(RichText::new(title).color(text_color()));
+            ui.add_space(2.0);
             ui.label(RichText::new(desc).color(muted()));
         });
-        ui.separator();
+        ui.add_space(16.0);
     }
 
     fn monitor_page(&mut self, ui: &mut Ui) {
@@ -231,19 +258,18 @@ impl SeexApp {
 
         ui.add_space(10.0);
         if let Ok(mut state) = self.state.lock() {
-            ui.group(|ui| {
+            section(ui, |ui| {
+                section_header(
+                    ui,
+                    self.t("Export files", "导出文件"),
+                    self.t(
+                        "BOM CSV for component keeping.",
+                        "用于元件管理的 BOM CSV 文件。",
+                    ),
+                );
+                ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    ui.strong(self.t("Export files", "导出文件"));
-                    ui.label(
-                        RichText::new(self.t(
-                            "BOM CSV for component keeping.",
-                            "用于元件管理的 BOM CSV 文件。",
-                        ))
-                        .color(muted()),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label(self.t("BOM CSV file:", "BOM CSV 文件:"));
+                    fixed_label(ui, self.t("BOM CSV file:", "BOM CSV 文件:"));
                     if ui
                         .add(
                             TextEdit::singleline(&mut state.matched_save_path).desired_width(640.0),
@@ -264,7 +290,7 @@ impl SeexApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label(self.t("Metadata language:", "元数据语言:"));
+                    fixed_label(ui, self.t("Metadata language:", "元数据语言:"));
                     if ui
                         .selectable_label(
                             state.bom_language != "english",
@@ -312,11 +338,7 @@ impl SeexApp {
             .unwrap_or((0, false, None));
 
         ui.horizontal_wrapped(|ui| {
-            ui.label(format!(
-                "{}: {}",
-                self.t("Matched", "匹配结果"),
-                matched_count
-            ));
+            metric_pill(ui, self.t("Matched", "匹配结果"), matched_count, primary());
             if ui.button(self.t("Copy IDs", "复制 ID")).clicked() {
                 let ids = self
                     .state
@@ -372,37 +394,40 @@ impl SeexApp {
             .map(|state| state.matched.clone())
             .unwrap_or_default();
 
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.strong(self.t("Matched", "匹配结果"));
-                ui.label(RichText::new(format!("{}", items.len())).color(primary()));
+        section(ui, |ui| {
+            section_header_inline(ui, self.t("Matched", "匹配结果"), |ui| {
+                count_chip(ui, items.len(), primary());
             });
             if !self.show_matched {
                 return;
             }
             if items.is_empty() {
-                ui.label(RichText::new(self.t("No matches yet", "暂无匹配结果")).color(muted()));
+                empty_state(ui, self.t("No matches yet", "暂无匹配结果"));
                 return;
             }
 
+            ui.add_space(8.0);
             ScrollArea::vertical().max_height(230.0).show(ui, |ui| {
                 let mut delete_index = None;
                 for (idx, item) in items.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.monospace(&item.last_seen);
-                        ui.label(RichText::new(&item.lcsc_id).strong().color(primary()));
-                        ui.label(format!("x{}", item.count));
-                        ui.label(RichText::new(first_line(&item.source_text, 72)).color(muted()));
-                        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button(self.t("Delete", "删除")).clicked() {
-                                delete_index = Some(idx);
-                            }
-                            if ui.small_button(self.t("Copy", "复制")).clicked() {
-                                copy_to_clipboard(&item.lcsc_id);
-                            }
+                    row_frame(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.monospace(RichText::new(&item.last_seen).color(muted()));
+                            ui.label(RichText::new(&item.lcsc_id).strong().color(primary()));
+                            count_chip_with_label(ui, "x", item.count, muted());
+                            ui.label(
+                                RichText::new(first_line(&item.source_text, 72)).color(muted()),
+                            );
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button(self.t("Delete", "删除")).clicked() {
+                                    delete_index = Some(idx);
+                                }
+                                if ui.small_button(self.t("Copy", "复制")).clicked() {
+                                    copy_to_clipboard(&item.lcsc_id);
+                                }
+                            });
                         });
                     });
-                    ui.separator();
                 }
                 if let Some(idx) = delete_index {
                     if let Ok(mut state) = self.state.lock() {
@@ -419,42 +444,54 @@ impl SeexApp {
             self.t("History", "历史"),
             self.t("Clipboard history", "剪贴板历史"),
         );
-        let show_history = self.t("Show history", "显示历史");
-        ui.checkbox(&mut self.show_history, show_history);
 
         let history = self
             .state
             .lock()
             .map(|state| state.history.clone())
             .unwrap_or_default();
-        if history.is_empty() {
-            ui.label(RichText::new(self.t("No history yet", "暂无历史记录")).color(muted()));
-            return;
-        }
 
-        ScrollArea::vertical().show(ui, |ui| {
-            let mut delete_index = None;
-            for (idx, (time, content)) in history.iter().enumerate() {
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.monospace(time);
-                        ui.label(first_line(content, 110));
-                        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button(self.t("Delete", "删除")).clicked() {
-                                delete_index = Some(idx);
-                            }
-                            if ui.small_button(self.t("Copy", "复制")).clicked() {
-                                copy_to_clipboard(content);
-                            }
+        section(ui, |ui| {
+            section_header_inline(ui, self.t("History", "历史"), |ui| {
+                count_chip(ui, history.len(), primary());
+            });
+            let show_history = self.t("Show history", "显示历史");
+            ui.checkbox(&mut self.show_history, show_history);
+
+            if history.is_empty() {
+                empty_state(ui, self.t("No history yet", "暂无历史记录"));
+                return;
+            }
+
+            if !self.show_history {
+                return;
+            }
+
+            ui.add_space(8.0);
+            ScrollArea::vertical().show(ui, |ui| {
+                let mut delete_index = None;
+                for (idx, (time, content)) in history.iter().enumerate() {
+                    row_frame(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.monospace(RichText::new(time).color(muted()));
+                            ui.label(first_line(content, 110));
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button(self.t("Delete", "删除")).clicked() {
+                                    delete_index = Some(idx);
+                                }
+                                if ui.small_button(self.t("Copy", "复制")).clicked() {
+                                    copy_to_clipboard(content);
+                                }
+                            });
                         });
                     });
-                });
-            }
-            if let Some(idx) = delete_index {
-                if let Ok(mut state) = self.state.lock() {
-                    state.delete_history(idx);
                 }
-            }
+                if let Some(idx) = delete_index {
+                    if let Ok(mut state) = self.state.lock() {
+                        state.delete_history(idx);
+                    }
+                }
+            });
         });
     }
 
@@ -470,22 +507,24 @@ impl SeexApp {
 
         if let Ok(mut state) = self.state.lock() {
             let matched_count = state.matched.len();
-            ui.group(|ui| {
+            section(ui, |ui| {
+                section_header_inline(ui, self.t("EDA Library Export", "EDA 库导出"), |ui| {
+                    metric_pill(ui, self.t("Ready", "待导出"), matched_count, primary());
+                });
+                ui.label(
+                    RichText::new(self.t(
+                        "Altium and KiCad export through export",
+                        "通过 export 导出 Altium 和 KiCad 库",
+                    ))
+                    .color(muted()),
+                );
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.heading(self.t("EDA Library Export", "EDA 库导出"));
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {}",
-                            matched_count,
-                            self.t("items ready", "项待导出")
-                        ))
-                        .color(primary()),
-                    );
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add_enabled(
-                                matched_count > 0 && !state.npnp_running,
-                                egui::Button::new(if state.npnp_running {
+                                matched_count > 0 && !state.export_running,
+                                egui::Button::new(if state.export_running {
                                     self.t("Running...", "运行中...")
                                 } else {
                                     self.t("Export Library", "导出库")
@@ -493,35 +532,29 @@ impl SeexApp {
                             )
                             .clicked()
                         {
-                            request = Some(npnp::ExportRequest {
+                            request = Some(exporter::ExportRequest {
                                 ids: state.get_unique_ids(),
-                                target: state.npnp_target.clone(),
-                                output_path: state.npnp_output_path.clone(),
-                                mode: if state.npnp_target == "kicad" {
-                                    state.npnp_kicad_mode.clone()
+                                target: state.export_target.clone(),
+                                output_path: state.export_output_path.clone(),
+                                mode: if state.export_target == "kicad" {
+                                    state.export_kicad_mode.clone()
                                 } else {
-                                    state.npnp_mode.clone()
+                                    state.export_mode.clone()
                                 },
-                                merge: state.npnp_merge,
-                                append: state.npnp_append,
-                                library_name: state.npnp_library_name.clone(),
-                                parallel: state.npnp_parallel,
-                                continue_on_error: state.npnp_continue_on_error,
-                                lcsc_english: state.npnp_lcsc_english,
-                                force: state.npnp_force,
-                                project_relative: state.npnp_project_relative,
+                                merge: state.export_merge,
+                                append: state.export_append,
+                                library_name: state.export_library_name.clone(),
+                                parallel: state.export_parallel,
+                                continue_on_error: state.export_continue_on_error,
+                                lcsc_english: state.export_lcsc_english,
+                                force: state.export_force,
+                                project_relative: state.export_project_relative,
                             });
                         }
                     });
                 });
-                ui.label(
-                    RichText::new(self.t(
-                        "Altium and KiCad export through npnp",
-                        "通过 npnp 导出 Altium 和 KiCad 库",
-                    ))
-                    .color(muted()),
-                );
-                if let Some(progress) = &state.npnp_progress {
+                if let Some(progress) = &state.export_progress {
+                    ui.add_space(6.0);
                     if progress.determinate && progress.total > 0 {
                         let value = progress.current as f32 / progress.total as f32;
                         ui.add(egui::ProgressBar::new(value).text(&progress.message));
@@ -532,8 +565,10 @@ impl SeexApp {
                         });
                     }
                 }
-                if let Some(result) = &state.npnp_last_result {
+                if let Some(result) = &state.export_last_result {
+                    ui.add_space(8.0);
                     ui.separator();
+                    ui.add_space(8.0);
                     render_export_result(ui, result);
                     let failed = extract_failed_ids(result);
                     ui.horizontal(|ui| {
@@ -552,105 +587,115 @@ impl SeexApp {
             });
 
             ui.add_space(10.0);
-            ui.group(|ui| {
-                ui.heading(self.t("Export Settings", "导出设置"));
+            section(ui, |ui| {
+                section_header(
+                    ui,
+                    self.t("Export Settings", "导出设置"),
+                    self.t("Defaults are saved automatically.", "设置会自动保存。"),
+                );
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(self.t("EDA target:", "EDA 目标:"));
-                    let mut target = state.npnp_target.clone();
+                    fixed_label(ui, self.t("EDA target:", "EDA 目标:"));
+                    let mut target = state.export_target.clone();
                     ComboBox::from_id_salt("target")
                         .selected_text(if target == "kicad" { "KiCad" } else { "Altium" })
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut target, "altium".to_string(), "Altium");
                             ui.selectable_value(&mut target, "kicad".to_string(), "KiCad");
                         });
-                    if target != state.npnp_target {
-                        state.set_npnp_target(target);
+                    if target != state.export_target {
+                        state.set_export_target(target);
                         save_config = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(self.t("Export directory:", "导出目录:"));
+                    fixed_label(ui, self.t("Export directory:", "导出目录:"));
                     if ui
-                        .add(TextEdit::singleline(&mut state.npnp_output_path).desired_width(640.0))
+                        .add(
+                            TextEdit::singleline(&mut state.export_output_path)
+                                .desired_width(640.0),
+                        )
                         .changed()
                     {
                         save_config = true;
                     }
                     if ui.button(self.t("Browse", "浏览")).clicked() {
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                            state.set_npnp_output_path(path.to_string_lossy().into_owned());
+                            state.set_export_output_path(path.to_string_lossy().into_owned());
                             save_config = true;
                         }
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(self.t("Export scope:", "导出范围:"));
-                    if state.npnp_target == "kicad" {
+                    fixed_label(ui, self.t("Export scope:", "导出范围:"));
+                    if state.export_target == "kicad" {
                         mode_button(
                             ui,
-                            &mut state.npnp_kicad_mode,
+                            &mut state.export_kicad_mode,
                             "full",
                             self.t("Full", "完整"),
                         );
                         mode_button(
                             ui,
-                            &mut state.npnp_kicad_mode,
+                            &mut state.export_kicad_mode,
                             "symbol",
                             self.t("Symbol", "符号"),
                         );
                         mode_button(
                             ui,
-                            &mut state.npnp_kicad_mode,
+                            &mut state.export_kicad_mode,
                             "footprint",
                             self.t("Footprint", "封装"),
                         );
-                        mode_button(ui, &mut state.npnp_kicad_mode, "3d", "3D");
+                        mode_button(ui, &mut state.export_kicad_mode, "3d", "3D");
                     } else {
-                        mode_button(ui, &mut state.npnp_mode, "full", self.t("Full", "完整"));
-                        mode_button(ui, &mut state.npnp_mode, "schlib", "SchLib");
-                        mode_button(ui, &mut state.npnp_mode, "pcblib", "PcbLib");
+                        mode_button(ui, &mut state.export_mode, "full", self.t("Full", "完整"));
+                        mode_button(ui, &mut state.export_mode, "schlib", "SchLib");
+                        mode_button(ui, &mut state.export_mode, "pcblib", "PcbLib");
                     }
                     save_config = true;
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(self.t("Library name:", "库名称:"));
+                    fixed_label(ui, self.t("Library name:", "库名称:"));
                     if ui
                         .add_enabled(
-                            state.npnp_target == "kicad" || state.npnp_merge,
-                            TextEdit::singleline(&mut state.npnp_library_name).desired_width(320.0),
+                            state.export_target == "kicad" || state.export_merge,
+                            TextEdit::singleline(&mut state.export_library_name)
+                                .desired_width(320.0),
                         )
                         .changed()
                     {
                         save_config = true;
                     }
-                    ui.label(self.t("Parallel jobs:", "并行任务数:"));
-                    let mut parallel = state.npnp_parallel as u32;
+                    ui.add_space(12.0);
+                    ui.label(RichText::new(self.t("Parallel jobs:", "并行任务数:")).color(muted()));
+                    let mut parallel = state.export_parallel as u32;
                     if ui
                         .add(egui::DragValue::new(&mut parallel).range(1..=64))
                         .changed()
                     {
-                        state.set_npnp_parallel(parallel as usize);
+                        state.set_export_parallel(parallel as usize);
                         save_config = true;
                     }
                 });
 
                 ui.horizontal_wrapped(|ui| {
-                    if state.npnp_target == "altium" {
-                        let mut merge = state.npnp_merge;
+                    if state.export_target == "altium" {
+                        let mut merge = state.export_merge;
                         if ui.checkbox(&mut merge, self.t("Merge", "合并")).changed() {
-                            state.set_npnp_merge(merge);
+                            state.set_export_merge(merge);
                             save_config = true;
                         }
-                        let mut append = state.npnp_append;
+                        let mut append = state.export_append;
                         if ui.checkbox(&mut append, self.t("Append", "追加")).changed() {
-                            state.set_npnp_append(append);
+                            state.set_export_append(append);
                             save_config = true;
                         }
                     } else {
-                        let mut project_relative = state.npnp_project_relative;
+                        let mut project_relative = state.export_project_relative;
                         if ui
                             .checkbox(
                                 &mut project_relative,
@@ -658,11 +703,11 @@ impl SeexApp {
                             )
                             .changed()
                         {
-                            state.set_npnp_project_relative(project_relative);
+                            state.set_export_project_relative(project_relative);
                             save_config = true;
                         }
                     }
-                    let mut continue_on_error = state.npnp_continue_on_error;
+                    let mut continue_on_error = state.export_continue_on_error;
                     if ui
                         .checkbox(
                             &mut continue_on_error,
@@ -670,20 +715,20 @@ impl SeexApp {
                         )
                         .changed()
                     {
-                        state.set_npnp_continue_on_error(continue_on_error);
+                        state.set_export_continue_on_error(continue_on_error);
                         save_config = true;
                     }
-                    let mut force = state.npnp_force;
+                    let mut force = state.export_force;
                     if ui.checkbox(&mut force, self.t("Force", "强制")).changed() {
-                        state.set_npnp_force(force);
+                        state.set_export_force(force);
                         save_config = true;
                     }
-                    let mut english = state.npnp_lcsc_english;
+                    let mut english = state.export_lcsc_english;
                     if ui
                         .checkbox(&mut english, self.t("English metadata", "英文元数据"))
                         .changed()
                     {
-                        state.set_npnp_lcsc_english(english);
+                        state.set_export_lcsc_english(english);
                         state.bom_language =
                             if english { "english" } else { "chinese" }.to_string();
                         save_config = true;
@@ -696,7 +741,7 @@ impl SeexApp {
             self.save_config();
         }
         if let Some(req) = request {
-            npnp::spawn_export(Arc::clone(&self.state), req);
+            exporter::spawn_export(Arc::clone(&self.state), req);
         }
     }
 
@@ -710,21 +755,8 @@ impl SeexApp {
     }
 
     fn pin_toggle(&mut self, ui: &mut Ui) {
-        let response = top_bar_icon_button(ui, 52.0, self.pin_on_top);
-        let rect = response.rect;
+        let response = top_bar_button(ui, 82.0, self.t("PIN", "置顶"), self.pin_on_top);
         let clicked = response.clicked();
-        let icon_color = if self.pin_on_top {
-            Color32::WHITE
-        } else {
-            text_color()
-        };
-        ui.painter().text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "\u{1F4CC}",
-            FontId::new(scaled_font(22.0), FontFamily::Proportional),
-            icon_color,
-        );
 
         response.on_hover_text(self.t("Keep window on top", "窗口置顶"));
 
@@ -924,37 +956,37 @@ fn install_fonts(ctx: &Context) {
 }
 
 fn apply_config_to_state(config: &AppConfig, state: &mut MonitorState) {
-    state.set_npnp_output_path(config.npnp.output_path.clone());
-    state.set_npnp_target(config.npnp.target.clone());
-    state.set_npnp_mode(config.npnp.mode.clone());
-    state.set_npnp_kicad_mode(config.npnp.kicad_mode.clone());
-    state.set_npnp_merge(config.npnp.merge);
-    state.set_npnp_append(config.npnp.append);
-    state.set_npnp_library_name(config.npnp.library_name.clone());
-    state.set_npnp_parallel(config.npnp.parallel);
-    state.set_npnp_continue_on_error(config.npnp.continue_on_error);
-    state.set_npnp_lcsc_english(config.npnp.lcsc_english);
-    state.set_npnp_force(config.npnp.force);
-    state.set_npnp_project_relative(config.npnp.project_relative);
+    state.set_export_output_path(config.export.output_path.clone());
+    state.set_export_target(config.export.target.clone());
+    state.set_export_mode(config.export.mode.clone());
+    state.set_export_kicad_mode(config.export.kicad_mode.clone());
+    state.set_export_merge(config.export.merge);
+    state.set_export_append(config.export.append);
+    state.set_export_library_name(config.export.library_name.clone());
+    state.set_export_parallel(config.export.parallel);
+    state.set_export_continue_on_error(config.export.continue_on_error);
+    state.set_export_lcsc_english(config.export.lcsc_english);
+    state.set_export_force(config.export.force);
+    state.set_export_project_relative(config.export.project_relative);
     state.set_matched_save_path(config.monitor.matched_save_path.clone());
     state.set_bom_language(config.monitor.bom_language.clone());
 }
 
 fn snapshot_config(state: &MonitorState) -> AppConfig {
     AppConfig {
-        npnp: NpnpConfig {
-            target: state.npnp_target.clone(),
-            output_path: state.npnp_output_path.clone(),
-            mode: state.npnp_mode.clone(),
-            kicad_mode: state.npnp_kicad_mode.clone(),
-            merge: state.npnp_merge,
-            append: state.npnp_append,
-            library_name: state.npnp_library_name.clone(),
-            parallel: state.npnp_parallel,
-            continue_on_error: state.npnp_continue_on_error,
-            lcsc_english: state.npnp_lcsc_english,
-            force: state.npnp_force,
-            project_relative: state.npnp_project_relative,
+        export: ExportConfig {
+            target: state.export_target.clone(),
+            output_path: state.export_output_path.clone(),
+            mode: state.export_mode.clone(),
+            kicad_mode: state.export_kicad_mode.clone(),
+            merge: state.export_merge,
+            append: state.export_append,
+            library_name: state.export_library_name.clone(),
+            parallel: state.export_parallel,
+            continue_on_error: state.export_continue_on_error,
+            lcsc_english: state.export_lcsc_english,
+            force: state.export_force,
+            project_relative: state.export_project_relative,
         },
         monitor: MonitorConfig {
             matched_save_path: state.matched_save_path.clone(),
@@ -980,19 +1012,105 @@ fn mode_button(ui: &mut Ui, mode: &mut String, value: &str, label: &str) {
     }
 }
 
+fn section(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, 0.0),
+        Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            Frame::new()
+                .fill(surface())
+                .stroke(Stroke::new(1.0, border()))
+                .inner_margin(Margin::symmetric(18, 16))
+                .show(ui, |ui| {
+                    ui.set_width((width - 36.0).max(0.0));
+                    ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
+                    add_contents(ui);
+                });
+        },
+    );
+}
+
+fn row_frame(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .fill(row_bg())
+        .stroke(Stroke::new(1.0, subtle_border()))
+        .inner_margin(Margin::symmetric(12, 8))
+        .show(ui, add_contents);
+    ui.add_space(6.0);
+}
+
+fn section_header(ui: &mut Ui, title: &str, desc: &str) {
+    ui.vertical(|ui| {
+        ui.label(RichText::new(title).strong().color(text_color()));
+        ui.label(RichText::new(desc).color(muted()));
+    });
+}
+
+fn section_header_inline(ui: &mut Ui, title: &str, right: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(title).strong().color(text_color()));
+        ui.with_layout(Layout::right_to_left(egui::Align::Center), right);
+    });
+}
+
+fn fixed_label(ui: &mut Ui, label: &str) {
+    ui.add_sized(
+        Vec2::new(180.0, 30.0),
+        egui::Label::new(RichText::new(label).color(muted())),
+    );
+}
+
+fn empty_state(ui: &mut Ui, label: &str) {
+    ui.add_space(8.0);
+    ui.label(RichText::new(label).color(muted()).italics());
+}
+
+fn metric_pill(ui: &mut Ui, label: &str, value: usize, color: Color32) {
+    chip(ui, &format!("{label} {value}"), color);
+}
+
+fn count_chip(ui: &mut Ui, value: usize, color: Color32) {
+    chip(ui, &value.to_string(), color);
+}
+
+fn count_chip_with_label(ui: &mut Ui, label: &str, value: usize, color: Color32) {
+    chip(ui, &format!("{label}{value}"), color);
+}
+
+fn chip(ui: &mut Ui, label: &str, color: Color32) {
+    let font = FontId::new(scaled_font(20.0), FontFamily::Proportional);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+    let size = galley.size() + Vec2::new(18.0, 8.0);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(rect, 12.0, chip_bg(color));
+    ui.painter()
+        .galley(rect.center() - galley.size() * 0.5, galley, color);
+}
+
 fn scaled_font(size: f32) -> f32 {
     size * FONT_SCALE_FROM_CURRENT
 }
 
-fn top_bar_text(ui: &mut Ui, width: f32, label: &str, size: f32, color: Color32, strong: bool) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 44.0), egui::Sense::hover());
-    let font_size = if strong { size + 1.0 } else { size };
+fn brand_lockup(ui: &mut Ui, texture: &egui::TextureHandle) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(132.0, 42.0), egui::Sense::hover());
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 23.0, rect.center().y),
+        Vec2::splat(32.0),
+    );
+    ui.painter().image(
+        texture.id(),
+        icon_rect,
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        Color32::WHITE,
+    );
     ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        FontId::new(scaled_font(font_size), FontFamily::Proportional),
-        color,
+        egui::pos2(icon_rect.right() + 10.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        "SeEx",
+        FontId::new(scaled_font(30.0), FontFamily::Proportional),
+        text_color(),
     );
 }
 
@@ -1009,12 +1127,14 @@ fn top_bar_separator(ui: &mut Ui, height: f32) {
 
 fn top_bar_button(ui: &mut Ui, width: f32, label: &str, selected: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 44.0), egui::Sense::click());
-    paint_top_bar_button(ui, rect, response.hovered(), selected);
+    let pressed = response.is_pointer_button_down_on();
+    paint_top_bar_button(ui, rect, response.hovered(), pressed, selected);
+    let text_rect = if pressed { rect.shrink(1.0) } else { rect };
     ui.painter().text(
-        rect.center(),
+        text_rect.center(),
         egui::Align2::CENTER_CENTER,
         label,
-        FontId::new(scaled_font(26.0), FontFamily::Proportional),
+        FontId::new(scaled_font(24.0), FontFamily::Proportional),
         if selected {
             Color32::WHITE
         } else {
@@ -1024,13 +1144,13 @@ fn top_bar_button(ui: &mut Ui, width: f32, label: &str, selected: bool) -> egui:
     response
 }
 
-fn top_bar_icon_button(ui: &mut Ui, width: f32, selected: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 44.0), egui::Sense::click());
-    paint_top_bar_button(ui, rect, response.hovered(), selected);
-    response
-}
-
-fn paint_top_bar_button(ui: &mut Ui, rect: egui::Rect, hovered: bool, selected: bool) {
+fn paint_top_bar_button(
+    ui: &mut Ui,
+    rect: egui::Rect,
+    hovered: bool,
+    pressed: bool,
+    selected: bool,
+) {
     let fill = if selected {
         primary()
     } else if hovered {
@@ -1038,7 +1158,8 @@ fn paint_top_bar_button(ui: &mut Ui, rect: egui::Rect, hovered: bool, selected: 
     } else {
         top_bar_button_bg()
     };
-    ui.painter().rect_filled(rect, 2.0, fill);
+    ui.painter()
+        .rect_filled(if pressed { rect.shrink(1.0) } else { rect }, 7.0, fill);
 }
 
 fn copy_to_clipboard(text: &str) {
@@ -1091,7 +1212,7 @@ fn is_failure_result_line(line: &str) -> bool {
     line == "Status: Failed"
         || line.starts_with("Failed IDs:")
         || line.starts_with("FAILED ")
-        || line.starts_with("npnp ")
+        || line.starts_with("export ")
         || line.contains(" failed")
 }
 
@@ -1124,96 +1245,120 @@ fn is_dark_mode() -> bool {
 
 fn primary() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(239, 116, 124)
+        Color32::from_rgb(74, 174, 214)
     } else {
-        Color32::from_rgb(232, 101, 108)
+        Color32::from_rgb(33, 137, 182)
     }
 }
 
 fn app_bg() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(30, 32, 36)
+        Color32::from_rgb(24, 27, 31)
     } else {
-        Color32::from_rgb(243, 240, 235)
+        Color32::from_rgb(246, 248, 250)
     }
 }
 
 fn surface() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(40, 43, 48)
+        Color32::from_rgb(32, 36, 42)
     } else {
         Color32::from_rgb(255, 255, 255)
     }
 }
 
+fn row_bg() -> Color32 {
+    if is_dark_mode() {
+        Color32::from_rgb(38, 43, 50)
+    } else {
+        Color32::from_rgb(250, 252, 253)
+    }
+}
+
 fn border() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(76, 72, 76)
+        Color32::from_rgb(55, 62, 72)
     } else {
-        Color32::from_rgb(242, 221, 214)
+        Color32::from_rgb(224, 229, 235)
+    }
+}
+
+fn subtle_border() -> Color32 {
+    if is_dark_mode() {
+        Color32::from_rgb(47, 54, 63)
+    } else {
+        Color32::from_rgb(235, 239, 244)
     }
 }
 
 fn success() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(106, 190, 112)
+        Color32::from_rgb(84, 193, 135)
     } else {
-        Color32::from_rgb(80, 150, 82)
+        Color32::from_rgb(38, 152, 98)
     }
 }
 
 fn danger() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(241, 99, 119)
+        Color32::from_rgb(245, 109, 120)
     } else {
-        Color32::from_rgb(220, 65, 84)
+        Color32::from_rgb(210, 65, 82)
     }
 }
 
 fn muted() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(181, 170, 164)
+        Color32::from_rgb(166, 176, 188)
     } else {
-        Color32::from_rgb(125, 101, 96)
+        Color32::from_rgb(99, 111, 125)
     }
 }
 
 fn text_color() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(239, 232, 226)
+        Color32::from_rgb(235, 239, 244)
     } else {
-        Color32::from_rgb(44, 24, 16)
+        Color32::from_rgb(27, 34, 43)
     }
 }
 
 fn field_bg() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(48, 51, 57)
+        Color32::from_rgb(38, 43, 50)
     } else {
-        Color32::from_rgb(255, 248, 244)
+        Color32::from_rgb(250, 252, 253)
     }
 }
 
 fn widget_hover_bg() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(64, 67, 74)
+        Color32::from_rgb(48, 55, 64)
     } else {
-        Color32::from_rgb(255, 236, 210)
+        Color32::from_rgb(239, 246, 250)
     }
 }
 
 fn top_bar_button_bg() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(58, 61, 67)
+        Color32::from_rgb(36, 41, 48)
     } else {
-        Color32::from_rgb(232, 232, 232)
+        Color32::from_rgb(246, 248, 250)
     }
 }
 
 fn top_bar_hover() -> Color32 {
     if is_dark_mode() {
-        Color32::from_rgb(70, 74, 82)
+        Color32::from_rgb(48, 55, 64)
     } else {
-        Color32::from_rgb(244, 244, 244)
+        Color32::from_rgb(235, 241, 246)
+    }
+}
+
+fn chip_bg(color: Color32) -> Color32 {
+    if is_dark_mode() {
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 42)
+    } else {
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 24)
     }
 }
