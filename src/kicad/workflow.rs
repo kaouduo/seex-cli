@@ -428,7 +428,6 @@ mod tests {
             model_3d: false,
             full: false,
             force: false,
-            project_relative: false,
             kicad_version: KicadVersion::V6,
         };
 

@@ -1,3 +1,4 @@
+use crate::altium::workflow::download_step;
 use crate::batch::{BatchOptions, BatchSummary, export_batch};
 use crate::cli::KicadVersion;
 use crate::kicad::{
@@ -5,6 +6,7 @@ use crate::kicad::{
     export_kicad_batch,
 };
 use crate::lceda::LcedaClient;
+use futures_util::stream::{self, StreamExt};
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -28,7 +30,6 @@ pub struct ExportRequest {
     pub continue_on_error: bool,
     pub lcsc_english: bool,
     pub force: bool,
-    pub project_relative: bool,
 }
 
 pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
@@ -56,6 +57,9 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
             }
             set_progress(&state, running_message(&req), false, 0, req.ids.len());
             if !is_kicad_target(&req) {
+                if normalize_altium_mode(&req.mode) == "3d" {
+                    return run_altium_3d_api(&req, &state, started_at);
+                }
                 let input_path = input_path
                     .as_ref()
                     .ok_or_else(|| "missing export batch input path".to_string())?;
@@ -113,6 +117,8 @@ fn running_message(req: &ExportRequest) -> String {
     let count = req.ids.len();
     if is_kicad_target(req) {
         format!("Running export KiCad batch for {} items...", count)
+    } else if normalize_altium_mode(&req.mode) == "3d" {
+        format!("Downloading Altium 3D models for {} items...", count)
     } else if req.merge && req.append {
         format!("Appending into merged export library ({} items)...", count)
     } else if req.merge {
@@ -160,6 +166,73 @@ fn run_altium_api(
     })
 }
 
+fn run_altium_3d_api(
+    req: &ExportRequest,
+    state: &Arc<Mutex<MonitorState>>,
+    started_at: Instant,
+) -> Result<String, String> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| err.to_string())?;
+    runtime.block_on(async {
+        let client = LcedaClient::new();
+        let output = PathBuf::from(normalize_output_path(&req.output_path));
+        let total = req.ids.len();
+        let force = req.force;
+        let parallel = req.parallel.max(1);
+        let mut jobs = stream::iter(req.ids.clone().into_iter().map(|id| {
+            let client = client.clone();
+            let output = output.clone();
+            async move {
+                let result = async {
+                    let item = client.select_item(&id, 1).await?;
+                    download_step(&client, &item, &output, force).await
+                }
+                .await;
+                (id, result)
+            }
+        }))
+        .buffer_unordered(parallel);
+
+        let mut success = 0usize;
+        let mut failed = Vec::new();
+        let mut completed = 0usize;
+        while let Some((id, result)) = jobs.next().await {
+            completed += 1;
+            match result {
+                Ok(_) => success += 1,
+                Err(error) => failed.push(format!("{id}: {error}")),
+            }
+            set_progress(
+                state,
+                format!("Downloading 3D models: {completed}/{total}"),
+                true,
+                completed,
+                total,
+            );
+        }
+
+        let mut lines = vec![
+            if failed.is_empty() {
+                "Status: Success".to_string()
+            } else {
+                "Status: Completed with errors".to_string()
+            },
+            "Target: Altium".to_string(),
+            format!("Elapsed: {}", format_duration(started_at.elapsed())),
+            format!("3D models: success {} | failed {}", success, failed.len()),
+            "Targets: 3D".to_string(),
+            format!("Output directory: {}", output.display()),
+            format!("Parallel: {parallel}"),
+        ];
+        if !failed.is_empty() {
+            lines.push(format!("Failed IDs: {}", failed.join(", ")));
+        }
+        Ok(lines.join("\n"))
+    })
+}
+
 fn build_batch_options(req: &ExportRequest, input_path: &PathBuf) -> BatchOptions {
     let mode = normalize_altium_mode(&req.mode);
     let append = req.append && req.merge;
@@ -196,7 +269,6 @@ fn build_kicad_batch_options(req: &ExportRequest) -> KicadBatchOptions {
             model_3d: mode == "3d",
             full: mode == "full",
             force: req.force,
-            project_relative: req.project_relative,
             kicad_version: KicadVersion::V6,
         },
         english_metadata: req.lcsc_english,
@@ -220,6 +292,7 @@ fn normalize_altium_mode(mode: &str) -> &str {
     match mode.trim().to_ascii_lowercase().as_str() {
         "schlib" => "schlib",
         "pcblib" => "pcblib",
+        "3d" => "3d",
         _ => "full",
     }
 }
@@ -331,11 +404,10 @@ fn format_kicad_summary(
     ));
 
     lines.push(format!(
-        "Continue on error: {} | LCSC English: {} | Force: {} | Project Relative: {}",
+        "Continue on error: {} | LCSC English: {} | Force: {}",
         yes_no(req.continue_on_error),
         yes_no(req.lcsc_english),
         yes_no(req.force),
-        yes_no(req.project_relative),
     ));
 
     lines.push(format!("Library name: {}", resolve_library_name(req)));
@@ -433,6 +505,7 @@ fn mode_label(req: &ExportRequest) -> &'static str {
         match normalize_altium_mode(&req.mode) {
             "schlib" => "SchLib",
             "pcblib" => "PcbLib",
+            "3d" => "3D",
             _ => "Full",
         }
     }
@@ -458,6 +531,7 @@ fn target_folders(req: &ExportRequest) -> Vec<&'static str> {
         match normalize_altium_mode(&req.mode) {
             "schlib" => vec!["schlib"],
             "pcblib" => vec!["pcblib"],
+            "3d" => vec!["*.step"],
             _ => vec!["schlib", "pcblib"],
         }
     }

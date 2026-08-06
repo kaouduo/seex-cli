@@ -433,19 +433,13 @@ pub fn convert_footprint(
         // Use LCSC ID as unique identifier to prevent name collisions
         let model_name = format!("{}_{}", sanitize_name(&model_info.title), lcsc_id);
 
-        // Default to project-relative paths (KIPRJMOD) for easier setup
-        // Use --project-relative flag to force global paths if needed
         // Prefer STEP format as it's more widely supported
         let model_lib_name = lib_manager.model_lib_name();
         let model_dir_name = lib_manager.model_dir_name();
-        let model_path = if args.project_relative {
-            format!("${{KIPRJMOD}}/{}/{}.step", model_dir_name, model_name)
-        } else {
-            format!(
-                "${{{}}}/{}/{}.step",
-                model_lib_name, model_dir_name, model_name
-            )
-        };
+        let model_path = format!(
+            "${{{}}}/{}/{}.step",
+            model_lib_name, model_dir_name, model_name
+        );
 
         ki_footprint.model_3d = Some(kicad::Ki3dModel {
             path: model_path,

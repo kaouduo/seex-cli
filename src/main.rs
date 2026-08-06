@@ -573,7 +573,6 @@ impl SeexApp {
                                 continue_on_error: state.export_continue_on_error,
                                 lcsc_english: state.export_lcsc_english,
                                 force: state.export_force,
-                                project_relative: state.export_project_relative,
                             });
                         }
                     });
@@ -679,6 +678,7 @@ impl SeexApp {
                         mode_button(ui, &mut state.export_mode, "full", self.t("Full", "完整"));
                         mode_button(ui, &mut state.export_mode, "schlib", "SchLib");
                         mode_button(ui, &mut state.export_mode, "pcblib", "PcbLib");
+                        mode_button(ui, &mut state.export_mode, "3d", "3D");
                     }
                     save_config = true;
                 });
@@ -708,7 +708,7 @@ impl SeexApp {
                 });
 
                 ui.horizontal_wrapped(|ui| {
-                    if state.export_target == "altium" {
+                    if state.export_target == "altium" && state.export_mode != "3d" {
                         let mut merge = state.export_merge;
                         if ui.checkbox(&mut merge, self.t("Merge", "合并")).changed() {
                             state.set_export_merge(merge);
@@ -717,18 +717,6 @@ impl SeexApp {
                         let mut append = state.export_append;
                         if ui.checkbox(&mut append, self.t("Append", "追加")).changed() {
                             state.set_export_append(append);
-                            save_config = true;
-                        }
-                    } else {
-                        let mut project_relative = state.export_project_relative;
-                        if ui
-                            .checkbox(
-                                &mut project_relative,
-                                self.t("Project Relative", "项目相对路径"),
-                            )
-                            .changed()
-                        {
-                            state.set_export_project_relative(project_relative);
                             save_config = true;
                         }
                     }
@@ -1007,7 +995,6 @@ fn apply_config_to_state(config: &AppConfig, state: &mut MonitorState) {
     state.set_export_continue_on_error(config.export.continue_on_error);
     state.set_export_lcsc_english(config.export.lcsc_english);
     state.set_export_force(config.export.force);
-    state.set_export_project_relative(config.export.project_relative);
     state.set_matched_save_path(config.monitor.matched_save_path.clone());
     state.set_bom_language(config.monitor.bom_language.clone());
 }
@@ -1026,7 +1013,6 @@ fn snapshot_config(state: &MonitorState) -> AppConfig {
             continue_on_error: state.export_continue_on_error,
             lcsc_english: state.export_lcsc_english,
             force: state.export_force,
-            project_relative: state.export_project_relative,
         },
         monitor: MonitorConfig {
             matched_save_path: state.matched_save_path.clone(),

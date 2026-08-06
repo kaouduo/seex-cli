@@ -55,7 +55,6 @@ pub struct MonitorState {
     pub export_continue_on_error: bool,
     pub export_lcsc_english: bool,
     pub export_force: bool,
-    pub export_project_relative: bool,
     pub matched_save_path: String,
     pub bom_language: String,
     pub bom_running: bool,
@@ -86,7 +85,6 @@ impl MonitorState {
             export_continue_on_error: false,
             export_lcsc_english: false,
             export_force: false,
-            export_project_relative: false,
             matched_save_path: default_save_path("matched.csv"),
             bom_language: "chinese".to_string(),
             bom_running: false,
@@ -235,6 +233,7 @@ impl MonitorState {
         self.export_mode = match mode.trim().to_ascii_lowercase().as_str() {
             "schlib" => "schlib".to_string(),
             "pcblib" => "pcblib".to_string(),
+            "3d" => "3d".to_string(),
             _ => "full".to_string(),
         };
     }
@@ -280,10 +279,6 @@ impl MonitorState {
 
     pub fn set_export_force(&mut self, force: bool) {
         self.export_force = force;
-    }
-
-    pub fn set_export_project_relative(&mut self, project_relative: bool) {
-        self.export_project_relative = project_relative;
     }
 
     pub fn set_matched_save_path(&mut self, path: String) {

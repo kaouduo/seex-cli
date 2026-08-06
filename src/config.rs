@@ -52,7 +52,6 @@ pub struct ExportConfig {
     pub continue_on_error: bool,
     pub lcsc_english: bool,
     pub force: bool,
-    pub project_relative: bool,
 }
 
 impl Default for ExportConfig {
@@ -69,7 +68,6 @@ impl Default for ExportConfig {
             continue_on_error: false,
             lcsc_english: false,
             force: false,
-            project_relative: false,
         }
     }
 }

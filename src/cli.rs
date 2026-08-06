@@ -195,9 +195,6 @@ pub enum KicadCommands {
         /// Replace existing KiCad symbol/footprint/3D outputs
         #[arg(long)]
         force: bool,
-        /// Use project-relative KIPRJMOD paths for 3D model references
-        #[arg(long)]
-        project_relative: bool,
         /// Prefer English metadata when available
         #[arg(long)]
         english_metadata: bool,
@@ -243,9 +240,6 @@ pub enum KicadCommands {
         /// Replace existing KiCad symbol/footprint/3D outputs
         #[arg(long)]
         force: bool,
-        /// Use project-relative KIPRJMOD paths for 3D model references
-        #[arg(long)]
-        project_relative: bool,
         /// Prefer English metadata when available
         #[arg(long)]
         english_metadata: bool,

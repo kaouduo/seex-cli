@@ -9,7 +9,6 @@ pub struct KicadExportOptions {
     pub model_3d: bool,
     pub full: bool,
     pub force: bool,
-    pub project_relative: bool,
     pub kicad_version: KicadVersion,
 }
 
