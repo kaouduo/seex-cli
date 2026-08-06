@@ -5,65 +5,69 @@
 <h1 align="center">SeEx</h1>
 
 <p align="center">
-  <strong>Seek &amp; Export</strong> - Clipboard component manager and EDA library exporter
+  <strong>Batch export LCSC components in formats supported by Altium Designer (AD) and KiCad.</strong>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-66BB6A" alt="Platforms" />
-</p>
-
-<p align="center"><a href="README.md">简体中文</a></p>
+<p align="center"><a href="README.en.md">English</a> | <a href="README.md">简体中文</a></p>
 
 ---
 
 ## Before You Start
 
-> Please read this section carefully, or at least read the [LICENSE](LICENSE) file.
->
-> From the beginning of the project to its completion on 2026-08-03, development has taken more than half a year in total.
+> [!NOTE]
+> Although the source code is fully public, please follow the [LICENSE](LICENSE) when using this project.
 
 The project history, in chronological order:
 
-- The project began with `nlbn` (Nice Library Bring now). It was open-sourced and received attention, but was copied directly and uploaded to Gitee. I stopped maintaining `nlbn` and removed the related crate.
-- While developing `nlbn`, I reverse-engineered parts of the Altium Designer file formats and gradually created `npnp` (Normalize Pin Net Pad). It was also open-sourced, and was copied as well. A rough Tauri 2 GUI was created around it and helped some users.
-- The GUI tool became the current `seex`. Until the latest refactor, it called the `npnp` CLI for exports. SeEx now contains the required exporter code directly and uses egui/eframe, so only SeEx is maintained going forward.
-- If you want this project to continue receiving long-term maintenance, please email me to discuss implementation details. Direct pull requests will not be merged. Email: `lampmud@163.com`.
-- Please do not misuse or create unauthorized forks or rewrites of this project. Feature requests can be opened as issues. GitHub is used primarily for GitHub Actions and multi-platform binary distribution.
-- If you make a fork or rewrite, at minimum keep clear attribution to the original project.
-- Please do not rewrite this tool in Python. Thank you for understanding.
+- The project began with `nlbn` (Nice Library Bring now). It was open-sourced and received a number of stars, but was uploaded to `Gitee` without permission. I stopped maintaining `nlbn` and realized that many people do not read the `README` or `License`, and have little respect for copyright or other people's work. Since the project originally only had an English README, which many people could not understand, `nlbn` is no longer maintained.
+- While developing `nlbn`, I reverse-engineered parts of the `Altium Designer` file format and gradually created `npnp` (Normalize Pin Net Pad). It was also open-sourced and copied. A corresponding `GUI` tool was then created. It used `tauri2`, and although it was rough, it helped many users.
+- That GUI tool became the current `seex` (seex & Export). It originally called the `npnp` `cli` for exports, which meant maintaining two repositories. After the refactor, `seex` no longer depends on `npnp`; it contains the required functionality directly and uses the `egui/eframe` GUI framework. From now on, only `seex` will be maintained and `npnp` binaries will no longer be released.
+- If you have a feature you would like to see, please contact me. Email: `lampmud@163.com` / `ybinlew@gmail.com`. You can also open an issue.
+- Please do not rewrite this tool in `python`. Python is not my `taste`. Thank you for understanding.
 
-## Using SeEx
+## What Can SeEx Do?
 
-SeEx monitors clipboard text containing LCSC component IDs, helps organize component lists, and exports Altium or KiCad libraries.
+### KiCad
 
-### 1. Start Listening
+- [x] Export KiCad-compatible `Symbol`, `Footprint`, and `3D` model formats.
+- [x] Export these formats in batches or individually, including standalone `step` model exports.
 
-Launch SeEx and copy text containing LCSC IDs. SeEx automatically recognizes and displays matching components.
+### Altium Designer (AD)
 
-Supported formats include `C2040`, `C2040,C503870`, and IDs embedded in ordinary text.
+- [x] Export individual `schlib` and `pcblib` libraries. `pcblib` includes the `step` model.
+- [x] Support batch export.
+- [x] Export multiple components into one merged `schlib` and `pcblib` library.
 
-### 2. Review Matches
+### Shared Features
 
-The matched-component list lets you:
+- [x] Export metadata in Chinese or English.
+- [x] Use multiple threads for downloads.
+- [x] Add new components to existing libraries exported by `seex`.
 
-- Review recognized LCSC IDs
-- Remove unwanted IDs
-- Clear the current list
-- Save matches as a BOM CSV
-- Choose Chinese or English component metadata
+## What Is Planned?
 
-### 3. Export EDA Libraries
+- [ ] Support more `EDA` tools, such as `allegro` and `pads`.
+- [ ] Add `MCP` support.
+- [ ] Continue improving the workflow and fix more hidden `bugs`.
+- [ ] Keep improving interactions and usability, refine the icons, and try new design languages.
+- [ ] Explore a broadly applicable way to remove or hide parts of `3D` models, such as specific markings.
 
-Open the export page and choose a target:
+## Who Would SeEx Like to Contribute?
 
-- **Altium**: SchLib, PcbLib, or full-library export
-- **KiCad**: symbol, footprint, 3D model, or full-library export
+- [x] People with software design experience who can help maintain the software over time.
+- [x] People with good visual judgment who can provide valuable design feedback.
+- [x] Designers who can help redesign the software icon.
+- [x] People who may have a better name for the software.
 
-Choose the output directory and start the export. The result shows success count, failed count, failed IDs, and total elapsed time.
+## What Will SeEx Not Support?
+
+> [!NOTE]
+> 1. SeEx will not add a `3D` model preview. Some derivative tools may include this feature, but I consider it unnecessary: preview it directly in the component store instead. Adding it to `seex` would take up interface space and memory.
+> 2. The GUI framework will not be replaced in the short term unless a better framework becomes available.
 
 ### Export Examples
 
-KiCad exports symbols, footprints, and 3D models:
+KiCad symbols, footprints, and 3D models:
 
 <table>
   <tr>
@@ -73,7 +77,7 @@ KiCad exports symbols, footprints, and 3D models:
   </tr>
 </table>
 
-<details>
+<table>
   <summary>Altium PCB library examples</summary>
 
   <table>
@@ -88,9 +92,9 @@ KiCad exports symbols, footprints, and 3D models:
       <td><img src="imgs/pcb_06.png" alt="Altium PCB example 6" width="420" /></td>
     </tr>
   </table>
-</details>
+</table>
 
-<details>
+<table>
   <summary>Altium SchLib examples</summary>
 
   <table>
@@ -105,40 +109,10 @@ KiCad exports symbols, footprints, and 3D models:
       <td><img src="imgs/sch_06.png" alt="Altium SchLib example 6" width="420" /></td>
     </tr>
   </table>
-</details>
+</table>
 
-### 4. Merge Libraries
+## References And Thanks
 
-For Altium, enable merge to write multiple components into one SchLib/PcbLib library. Set a library name to create or append to the selected library.
-
-KiCad full export creates the symbol library, footprint library, and 3D model directories in the output directory.
-
-### 5. Adjust Export Speed
-
-Parallelism controls how many components are processed at once. Higher values can improve speed but increase network and system resource usage. Start with `4` or `8` and adjust for your system.
-
-Existing files are skipped by default. Enable Force Overwrite when you need to regenerate them.
-
-## Output Location
-
-The default output directory is `export` beside the application. You can change it on the export page.
-
-Common output files include:
-
-- Altium `.SchLib` and `.PcbLib`
-- KiCad `.kicad_sym`, `.pretty`, and `.3dshapes`
-- BOM `.csv`
-
-## Releases
-
-Windows users can install the x64 `setup.exe` or run the portable `.exe`. Windows ARM, Linux x64/ARM64, and macOS Intel/Apple Silicon archives are available from GitHub Releases.
-
-These platform builds are provided through GitHub Actions and have not all been tested on physical hardware. Use the matching platform package and follow its normal installation method.
-
-## Language And Settings
-
-Use the language button in the top bar to switch between Chinese and English. The pin button keeps SeEx above other windows.
-
-## License
-
-Copyright (c) Ref42. All rights reserved.
+- Thanks to [`easyeda2kicad`](https://github.com/uPesy/easyeda2kicad.py) and [uPesy](https://github.com/uPesy) for the project's original inspiration. It is an excellent tool, and most EasyEDA import plugins related to `KiCad` are based on it.
+- Thanks to the community member Ju Mao for providing part of the `TOKEN`. I also paid for some of it, but the final result was roughly half purchased and half donated. `opus 4.6` was still very useful at the time, and it helped implement many features and establish a good foundation.
+- Thanks to everyone who helped test the project, including emoji @[z217-cpu](https://github.com/z217-cpu), Yang Yang @[Cloud-Lightning](https://github.com/Cloud-Lightning), and others.
