@@ -108,6 +108,7 @@ jobs:
           if ('${{ matrix.target }}' -eq 'x86_64-pc-windows-msvc') {
             $setupBase = "$name-setup"
             $iss = "$setupBase.iss"
+            $icon = (Get-ChildItem "target\${{ matrix.target }}\release\build\seex-*\out\seex.ico" | Select-Object -First 1).FullName
             @(
               '[Setup]'
               'AppId={{A5AE338A-F870-4DB2-98A1-03C7B012A699}'
@@ -125,7 +126,7 @@ jobs:
               'DisableProgramGroupPage=yes'
               'OutputDir=.'
               "OutputBaseFilename=$setupBase"
-              'SetupIconFile=assets\icons\seex.ico'
+              "SetupIconFile=$icon"
               "UninstallDisplayName=SeEx $version"
               'Compression=lzma'
               'SolidCompression=yes'

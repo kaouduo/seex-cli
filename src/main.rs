@@ -79,7 +79,7 @@ fn set_windows_app_id() {
 fn set_windows_app_id() {}
 
 fn load_app_icon() -> egui::IconData {
-    let mut image = image::load_from_memory(include_bytes!("../assets/icons/seex.png"))
+    let mut image = image::load_from_memory(include_bytes!(concat!(env!("OUT_DIR"), "/seex.png")))
         .expect("embedded SeEx icon must decode")
         .into_rgba8();
     let max_edge = 256;
