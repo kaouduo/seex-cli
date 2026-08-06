@@ -30,6 +30,8 @@ pub struct ExportRequest {
     pub continue_on_error: bool,
     pub lcsc_english: bool,
     pub force: bool,
+    pub schematic_stroke_color: [u8; 3],
+    pub schematic_fill_color: [u8; 3],
 }
 
 pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
@@ -249,6 +251,8 @@ fn build_batch_options(req: &ExportRequest, input_path: &PathBuf) -> BatchOption
         continue_on_error: req.continue_on_error,
         english_metadata: req.lcsc_english,
         force: req.force,
+        schematic_stroke_color: req.schematic_stroke_color,
+        schematic_fill_color: req.schematic_fill_color,
     }
 }
 
@@ -270,6 +274,8 @@ fn build_kicad_batch_options(req: &ExportRequest) -> KicadBatchOptions {
             full: mode == "full",
             force: req.force,
             kicad_version: KicadVersion::V6,
+            schematic_stroke_color: req.schematic_stroke_color,
+            schematic_fill_color: req.schematic_fill_color,
         },
         english_metadata: req.lcsc_english,
         parallel: req.parallel.max(1),

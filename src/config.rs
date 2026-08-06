@@ -12,6 +12,7 @@ pub struct AppConfig {
     pub export: ExportConfig,
     pub monitor: MonitorConfig,
     pub ui_language: String,
+    pub show_donate: bool,
 }
 
 impl Default for AppConfig {
@@ -20,6 +21,7 @@ impl Default for AppConfig {
             export: ExportConfig::default(),
             monitor: MonitorConfig::default(),
             ui_language: "english".to_string(),
+            show_donate: true,
         }
     }
 }
@@ -54,6 +56,9 @@ pub struct ExportConfig {
     pub continue_on_error: bool,
     pub lcsc_english: bool,
     pub force: bool,
+    #[serde(alias = "schematic_color")]
+    pub schematic_stroke_color: [u8; 3],
+    pub schematic_fill_color: [u8; 3],
 }
 
 impl Default for ExportConfig {
@@ -70,6 +75,9 @@ impl Default for ExportConfig {
             continue_on_error: false,
             lcsc_english: false,
             force: false,
+            // Preserve the existing Altium symbol colors as the initial choices.
+            schematic_stroke_color: [11, 56, 104],
+            schematic_fill_color: [255, 255, 224],
         }
     }
 }

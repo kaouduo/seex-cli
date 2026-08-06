@@ -429,6 +429,8 @@ mod tests {
             full: false,
             force: false,
             kicad_version: KicadVersion::V6,
+            schematic_stroke_color: [11, 56, 104],
+            schematic_fill_color: [255, 255, 224],
         };
 
         let err = validate_targets(&export).unwrap_err().to_string();

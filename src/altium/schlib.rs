@@ -66,13 +66,31 @@ pub fn build_component_from_payload_with_metadata(
     component_name: &str,
     metadata: &SchlibMetadata,
 ) -> Result<Component> {
-    build_component(payload, component_name, metadata)
+    build_component(
+        payload,
+        component_name,
+        metadata,
+        common::SYMBOL_BGR,
+        common::FILL_BGR,
+    )
+}
+
+pub fn build_component_from_payload_with_metadata_and_color(
+    payload: &Value,
+    component_name: &str,
+    metadata: &SchlibMetadata,
+    color_bgr: i32,
+    fill_color_bgr: i32,
+) -> Result<Component> {
+    build_component(payload, component_name, metadata, color_bgr, fill_color_bgr)
 }
 
 fn build_component(
     payload: &Value,
     component_name: &str,
     metadata: &SchlibMetadata,
+    color_bgr: i32,
+    fill_color_bgr: i32,
 ) -> Result<Component> {
     let rows = common::parse_easyeda_rows(payload)?;
     let mut parts: Vec<PartRaw> = Vec::new();
@@ -393,8 +411,8 @@ fn build_component(
                     laid_out_rect.x2_units,
                     laid_out_rect.height_units() - laid_out_rect.y2_units,
                 ),
-                color_bgr: common::BORDER_BGR,
-                fill_color_bgr: common::FILL_BGR,
+                color_bgr,
+                fill_color_bgr,
                 is_filled: true,
                 is_transparent: false,
                 line_width_index: BODY_LINE_WIDTH_INDEX,
@@ -413,7 +431,7 @@ fn build_component(
                     orientation: pin_orientation_from_easyeda_rotation(pin.rotation_degrees),
                     show_name: pin.show_name,
                     show_designator: pin.show_designator,
-                    color_bgr: common::SYMBOL_BGR,
+                    color_bgr,
                     owner_part_id: 1,
                     owner_part_display_mode: 0,
                 });
@@ -431,8 +449,8 @@ fn build_component(
                 component.rectangles.push(Rectangle {
                     corner1: common::CoordPoint::from_symbol_units(rect.x1_units, rect.y1_units),
                     corner2: common::CoordPoint::from_symbol_units(rect.x2_units, rect.y2_units),
-                    color_bgr: common::BORDER_BGR,
-                    fill_color_bgr: if complex { WHITE_BGR } else { common::FILL_BGR },
+                    color_bgr,
+                    fill_color_bgr: if complex { WHITE_BGR } else { fill_color_bgr },
                     is_filled: !complex,
                     is_transparent: complex,
                     line_width_index: BODY_LINE_WIDTH_INDEX,
@@ -451,8 +469,8 @@ fn build_component(
                         bounds.max_x_units,
                         bounds.min_y_units,
                     ),
-                    color_bgr: common::BORDER_BGR,
-                    fill_color_bgr: if complex { WHITE_BGR } else { common::FILL_BGR },
+                    color_bgr,
+                    fill_color_bgr: if complex { WHITE_BGR } else { fill_color_bgr },
                     is_filled: !complex,
                     is_transparent: complex,
                     line_width_index: BODY_LINE_WIDTH_INDEX,
@@ -470,7 +488,7 @@ fn build_component(
                         common::CoordPoint::from_symbol_units(point.x_units, point.y_units)
                     })
                     .collect(),
-                color_bgr: common::SYMBOL_BGR,
+                color_bgr,
                 line_width_index: GRAPHIC_LINE_WIDTH_INDEX,
                 owner_part_id: polyline.owner_part_id,
             });
@@ -486,7 +504,7 @@ fn build_component(
                         common::CoordPoint::from_symbol_units(arc.mid.x_units, arc.mid.y_units),
                         common::CoordPoint::from_symbol_units(arc.end.x_units, arc.end.y_units),
                     ],
-                    color_bgr: common::SYMBOL_BGR,
+                    color_bgr,
                     line_width_index: GRAPHIC_LINE_WIDTH_INDEX,
                     owner_part_id: arc.owner_part_id,
                 });
@@ -501,9 +519,9 @@ fn build_component(
                 ),
                 radius_x_raw: common::raw_from_symbol_units(ellipse.radius_x_units),
                 radius_y_raw: common::raw_from_symbol_units(ellipse.radius_y_units),
-                color_bgr: common::SYMBOL_BGR,
+                color_bgr,
                 fill_color_bgr: if ellipse.is_filled {
-                    common::SYMBOL_BGR
+                    fill_color_bgr
                 } else {
                     WHITE_BGR
                 },
@@ -519,7 +537,7 @@ fn build_component(
                 text: label.text.clone(),
                 location: common::CoordPoint::from_symbol_units(label.x_units, label.y_units),
                 orientation: text_orientation_from_rotation(label.rotation_degrees),
-                color_bgr: common::SYMBOL_BGR,
+                color_bgr,
                 owner_part_id: label.owner_part_id,
             });
             has_any_body = true;
@@ -565,7 +583,7 @@ fn build_component(
                 orientation: pin_geometry.orientation,
                 show_name,
                 show_designator,
-                color_bgr: common::SYMBOL_BGR,
+                color_bgr,
                 owner_part_id: pin.owner_part_id,
                 owner_part_display_mode: 0,
             });
@@ -583,7 +601,7 @@ fn build_component(
                     bounds.max_x_units,
                     bounds.min_y_units,
                 ),
-                color_bgr: common::BORDER_BGR,
+                color_bgr,
                 fill_color_bgr: WHITE_BGR,
                 is_filled: false,
                 is_transparent: true,

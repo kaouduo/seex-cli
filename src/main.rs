@@ -160,15 +160,21 @@ struct SeexApp {
     clear_confirm: bool,
     last_theme_check: Instant,
     update_state: Arc<Mutex<UpdateState>>,
+    show_donate: bool,
+    schematic_stroke_color: [u8; 3],
+    schematic_fill_color: [u8; 3],
+    schematic_stroke_hex: String,
+    schematic_fill_hex: String,
+    active_color_picker: Option<u8>,
 }
 
 impl SeexApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let config = AppConfig::load();
         install_fonts(&cc.egui_ctx);
         DARK_MODE.store(detect_dark_mode(), Ordering::Relaxed);
         install_style(&cc.egui_ctx);
 
-        let config = AppConfig::load();
         let mut initial = MonitorState::new();
         apply_config_to_state(&config, &mut initial);
         initial.set_keyword(build_keyword(true, true));
@@ -205,6 +211,12 @@ impl SeexApp {
             clear_confirm: false,
             last_theme_check: Instant::now(),
             update_state: Arc::new(Mutex::new(UpdateState::default())),
+            show_donate: config.show_donate,
+            schematic_stroke_color: config.export.schematic_stroke_color,
+            schematic_fill_color: config.export.schematic_fill_color,
+            schematic_stroke_hex: color_to_hex(config.export.schematic_stroke_color),
+            schematic_fill_hex: color_to_hex(config.export.schematic_fill_color),
+            active_color_picker: None,
         }
     }
 
@@ -542,6 +554,11 @@ impl SeexApp {
 
         let mut request = None;
         let mut save_config = false;
+        let mut schematic_stroke_color = self.schematic_stroke_color;
+        let mut schematic_fill_color = self.schematic_fill_color;
+        let mut schematic_stroke_hex = self.schematic_stroke_hex.clone();
+        let mut schematic_fill_hex = self.schematic_fill_hex.clone();
+        let mut active_color_picker = self.active_color_picker;
 
         if let Ok(mut state) = self.state.lock() {
             let matched_count = state.matched.len();
@@ -586,6 +603,8 @@ impl SeexApp {
                                 continue_on_error: state.export_continue_on_error,
                                 lcsc_english: state.export_lcsc_english,
                                 force: state.export_force,
+                                schematic_stroke_color: self.schematic_stroke_color,
+                                schematic_fill_color: self.schematic_fill_color,
                             });
                         }
                     });
@@ -645,6 +664,27 @@ impl SeexApp {
                         save_config = true;
                     }
                 });
+
+                if color_setting(
+                    ui,
+                    self.t("Stroke color:", "描边颜色:"),
+                    &mut schematic_stroke_color,
+                    &mut schematic_stroke_hex,
+                    0,
+                    &mut active_color_picker,
+                ) {
+                    save_config = true;
+                }
+                if color_setting(
+                    ui,
+                    self.t("Fill color:", "填充颜色:"),
+                    &mut schematic_fill_color,
+                    &mut schematic_fill_hex,
+                    1,
+                    &mut active_color_picker,
+                ) {
+                    save_config = true;
+                }
 
                 ui.horizontal(|ui| {
                     fixed_label(ui, self.t("Export directory:", "导出目录:"));
@@ -763,6 +803,17 @@ impl SeexApp {
             });
         }
 
+        if schematic_stroke_color != self.schematic_stroke_color {
+            self.schematic_stroke_color = schematic_stroke_color;
+            save_config = true;
+        }
+        if schematic_fill_color != self.schematic_fill_color {
+            self.schematic_fill_color = schematic_fill_color;
+            save_config = true;
+        }
+        self.schematic_stroke_hex = schematic_stroke_hex;
+        self.schematic_fill_hex = schematic_fill_hex;
+        self.active_color_picker = active_color_picker;
         if save_config {
             self.save_config();
         }
@@ -772,71 +823,97 @@ impl SeexApp {
     }
 
     fn more_page(&mut self, ui: &mut Ui) {
-        section(ui, |ui| {
-            section_header(
-                ui,
-                self.t("Updates", "更新"),
-                self.t("Keep SeEx up to date", "检查 SeEx 是否有新版本"),
-            );
-            ui.add_space(8.0);
+        ui.columns(2, |columns| {
+            section(&mut columns[0], |ui| {
+                section_header(
+                    ui,
+                    self.t("Preferences", "偏好设置"),
+                    self.t("Choose what SeEx displays.", "选择显示内容。"),
+                );
+                ui.add_space(8.0);
 
-            let update = self
-                .update_state
-                .lock()
-                .map(|state| state.clone())
-                .unwrap_or_default();
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "{}: {}",
-                    self.t("Current version", "当前版本"),
-                    env!("CARGO_PKG_VERSION")
-                ));
-                if update.checking {
-                    ui.spinner();
-                    ui.label(self.t("Checking...", "检查中..."));
-                } else if ui.button(self.t("Check for updates", "检查更新")).clicked() {
-                    self.start_update_check(ui.ctx());
+                let mut show_donate = self.show_donate;
+                if ui
+                    .checkbox(
+                        &mut show_donate,
+                        self.t("Show donation QR codes", "显示赞助二维码"),
+                    )
+                    .changed()
+                {
+                    self.show_donate = show_donate;
+                    self.save_config();
                 }
             });
 
-            if let Some(error) = update.error {
-                ui.label(RichText::new(error).color(Color32::from_rgb(190, 70, 70)));
-            } else if let Some(latest) = update.latest_version {
-                if version_is_newer(&latest, env!("CARGO_PKG_VERSION")) {
-                    ui.horizontal(|ui| {
+            section(&mut columns[1], |ui| {
+                section_header(
+                    ui,
+                    self.t("Updates", "更新"),
+                    self.t("Keep SeEx up to date", "检查 SeEx 是否有新版本"),
+                );
+                ui.add_space(8.0);
+
+                let update = self
+                    .update_state
+                    .lock()
+                    .map(|state| state.clone())
+                    .unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "{}: {}",
+                        self.t("Current version", "当前版本"),
+                        env!("CARGO_PKG_VERSION")
+                    ));
+                    if update.checking {
+                        ui.spinner();
+                        ui.label(self.t("Checking...", "检查中..."));
+                    } else if ui.button(self.t("Check for updates", "检查更新")).clicked() {
+                        self.start_update_check(ui.ctx());
+                    }
+                });
+
+                if let Some(error) = update.error {
+                    ui.label(RichText::new(error).color(Color32::from_rgb(190, 70, 70)));
+                } else if let Some(latest) = update.latest_version {
+                    if version_is_newer(&latest, env!("CARGO_PKG_VERSION")) {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{}: {}",
+                                    self.t("Update available", "发现新版本"),
+                                    latest
+                                ))
+                                .color(Color32::from_rgb(35, 145, 85)),
+                            );
+                            if let Some(url) = update.release_url {
+                                ui.hyperlink_to(self.t("Download update", "下载更新"), url);
+                            }
+                        });
+                    } else if update.checked {
                         ui.label(
-                            RichText::new(format!(
-                                "{}: {}",
-                                self.t("Update available", "发现新版本"),
-                                latest
-                            ))
-                            .color(Color32::from_rgb(35, 145, 85)),
+                            RichText::new(self.t("You are up to date.", "当前已是最新版本。"))
+                                .color(Color32::from_rgb(35, 145, 85)),
                         );
-                        if let Some(url) = update.release_url {
-                            ui.hyperlink_to(self.t("Download update", "下载更新"), url);
-                        }
-                    });
-                } else if update.checked {
-                    ui.label(
-                        RichText::new(self.t("You are up to date.", "当前已是最新版本。"))
-                            .color(Color32::from_rgb(35, 145, 85)),
-                    );
+                    }
                 }
-            }
+            });
         });
 
-        ui.add_space(12.0);
-        ui.columns(2, |columns| {
-            for (column, texture) in columns
-                .iter_mut()
-                .zip([&self.donate_pay, &self.donate_wechat])
-            {
-                column.vertical_centered(|ui| {
-                    let image_size = fit_image_size(texture.size_vec2(), Vec2::new(420.0, 620.0));
-                    ui.image((texture.id(), image_size));
-                });
-            }
-        });
+        if self.show_donate {
+            ui.add_space(12.0);
+            ui.columns(2, |columns| {
+                for (column, texture) in columns
+                    .iter_mut()
+                    .zip([&self.donate_pay, &self.donate_wechat])
+                {
+                    column.vertical_centered(|ui| {
+                        let image_size =
+                            fit_image_size(texture.size_vec2(), Vec2::new(420.0, 620.0));
+                        ui.image((texture.id(), image_size));
+                    });
+                }
+            });
+        }
     }
 
     fn start_update_check(&self, ctx: &Context) {
@@ -927,7 +1004,14 @@ impl SeexApp {
 
     fn save_config(&self) {
         if let Ok(state) = self.state.lock() {
-            snapshot_config(&state, self.lang).save();
+            snapshot_config(
+                &state,
+                self.lang,
+                self.show_donate,
+                self.schematic_stroke_color,
+                self.schematic_fill_color,
+            )
+            .save();
         }
     }
 
@@ -1090,7 +1174,6 @@ fn install_fonts(ctx: &Context) {
         "source_han_sans_sc".to_string(),
         FontData::from_static(include_bytes!("../assets/fonts/SourceHanSansSC.otf")).into(),
     );
-
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
         fonts
             .families
@@ -1118,7 +1201,13 @@ fn apply_config_to_state(config: &AppConfig, state: &mut MonitorState) {
     state.set_bom_language(config.monitor.bom_language.clone());
 }
 
-fn snapshot_config(state: &MonitorState, language: Lang) -> AppConfig {
+fn snapshot_config(
+    state: &MonitorState,
+    language: Lang,
+    show_donate: bool,
+    schematic_stroke_color: [u8; 3],
+    schematic_fill_color: [u8; 3],
+) -> AppConfig {
     AppConfig {
         export: ExportConfig {
             target: state.export_target.clone(),
@@ -1132,6 +1221,8 @@ fn snapshot_config(state: &MonitorState, language: Lang) -> AppConfig {
             continue_on_error: state.export_continue_on_error,
             lcsc_english: state.export_lcsc_english,
             force: state.export_force,
+            schematic_stroke_color,
+            schematic_fill_color,
         },
         monitor: MonitorConfig {
             matched_save_path: state.matched_save_path.clone(),
@@ -1141,6 +1232,7 @@ fn snapshot_config(state: &MonitorState, language: Lang) -> AppConfig {
             Lang::En => "english".to_string(),
             Lang::Zh => "chinese".to_string(),
         },
+        show_donate,
     }
 }
 
@@ -1209,6 +1301,151 @@ fn fixed_label(ui: &mut Ui, label: &str) {
         Vec2::new(180.0, 30.0),
         egui::Label::new(RichText::new(label).color(muted())),
     );
+}
+
+fn color_setting(
+    ui: &mut Ui,
+    label: &str,
+    color: &mut [u8; 3],
+    hex_text: &mut String,
+    picker_id: u8,
+    active_picker: &mut Option<u8>,
+) -> bool {
+    let mut changed = false;
+    let mut opened_this_frame = false;
+    ui.horizontal(|ui| {
+        fixed_label(ui, label);
+        let swatch = Color32::from_rgb(color[0], color[1], color[2]);
+        if ui
+            .add(
+                egui::Button::new("")
+                    .min_size(Vec2::new(28.0, 24.0))
+                    .fill(swatch),
+            )
+            .clicked()
+        {
+            *active_picker = if *active_picker == Some(picker_id) {
+                None
+            } else {
+                Some(picker_id)
+            };
+            opened_this_frame = true;
+        }
+        if ui
+            .add_sized(
+                Vec2::new(100.0, 28.0),
+                TextEdit::singleline(hex_text)
+                    .char_limit(7)
+                    .hint_text("#RRGGBB"),
+            )
+            .changed()
+        {
+            if let Some(parsed) = parse_hex_color(hex_text) {
+                *color = parsed;
+                changed = true;
+            }
+        }
+    });
+
+    if *active_picker == Some(picker_id) {
+        let window = egui::Window::new(label)
+            .id(egui::Id::new(("schematic-color", picker_id)))
+            .collapsible(false)
+            .resizable(false)
+            .default_width(260.0)
+            .show(ui.ctx(), |ui| {
+                ui.label("Pick a swatch:");
+                ui.horizontal_wrapped(|ui| {
+                    for palette_color in [
+                        [0, 0, 0],
+                        [255, 255, 255],
+                        [220, 53, 69],
+                        [255, 193, 7],
+                        [25, 135, 84],
+                        [13, 110, 253],
+                        [111, 66, 193],
+                        [11, 56, 104],
+                    ] {
+                        let response =
+                            ui.add(egui::Button::new("").min_size(Vec2::splat(24.0)).fill(
+                                Color32::from_rgb(
+                                    palette_color[0],
+                                    palette_color[1],
+                                    palette_color[2],
+                                ),
+                            ));
+                        if response.clicked() {
+                            *color = palette_color;
+                            changed = true;
+                        }
+                    }
+                });
+                ui.spacing_mut().slider_width = ui.available_width().max(180.0);
+                let mut color32 = Color32::from_rgb(color[0], color[1], color[2]);
+                if egui::color_picker::color_picker_color32(
+                    ui,
+                    &mut color32,
+                    egui::color_picker::Alpha::Opaque,
+                ) {
+                    *color = [color32.r(), color32.g(), color32.b()];
+                    changed = true;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Hex");
+                    if ui
+                        .add_sized(
+                            Vec2::new(110.0, 28.0),
+                            TextEdit::singleline(hex_text).char_limit(7),
+                        )
+                        .changed()
+                    {
+                        if let Some(parsed) = parse_hex_color(hex_text) {
+                            *color = parsed;
+                            changed = true;
+                        }
+                    }
+                    if ui.button("Done").clicked() {
+                        *active_picker = None;
+                    }
+                });
+            });
+
+        if !opened_this_frame {
+            if let Some(window) = window {
+                let clicked_outside = ui.ctx().input(|input| {
+                    input.pointer.any_click()
+                        && input
+                            .pointer
+                            .interact_pos()
+                            .is_some_and(|position| !window.response.rect.contains(position))
+                });
+                if clicked_outside {
+                    *active_picker = None;
+                }
+            }
+        }
+    }
+
+    if changed {
+        *hex_text = color_to_hex(*color);
+    }
+    changed
+}
+
+fn color_to_hex(color: [u8; 3]) -> String {
+    format!("#{:02X}{:02X}{:02X}", color[0], color[1], color[2])
+}
+
+fn parse_hex_color(value: &str) -> Option<[u8; 3]> {
+    let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
+    if value.len() != 6 {
+        return None;
+    }
+    Some([
+        u8::from_str_radix(&value[0..2], 16).ok()?,
+        u8::from_str_radix(&value[2..4], 16).ok()?,
+        u8::from_str_radix(&value[4..6], 16).ok()?,
+    ])
 }
 
 fn empty_state(ui: &mut Ui, label: &str) {

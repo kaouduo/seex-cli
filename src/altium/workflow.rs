@@ -8,8 +8,8 @@ use serde_json::{Value, to_string_pretty};
 use crate::altium::footprint::build_pcblib_from_payload;
 use crate::altium::pcblib::{PcbLibrary, write_pcblib};
 use crate::altium::schlib::{
-    Component, SchlibMetadata, SchlibParameter, build_component_from_payload_with_metadata,
-    write_schlib,
+    Component, SchlibMetadata, SchlibParameter,
+    build_component_from_payload_with_metadata_and_color, write_schlib,
 };
 use crate::error::{AppError, Result};
 use crate::lceda::{LcedaClient, SearchItem};
@@ -199,6 +199,28 @@ pub(crate) fn build_schlib_component_from_detail(
     footprint_library_file: Option<&str>,
     english_metadata: Option<&LcscProduct>,
 ) -> Result<Component> {
+    build_schlib_component_from_detail_with_color(
+        item,
+        symbol_data,
+        component_name,
+        footprint_model_name,
+        footprint_library_file,
+        english_metadata,
+        0x68380B,
+        0xE0FFFF,
+    )
+}
+
+pub(crate) fn build_schlib_component_from_detail_with_color(
+    item: &SearchItem,
+    symbol_data: &Value,
+    component_name: &str,
+    footprint_model_name: Option<&str>,
+    footprint_library_file: Option<&str>,
+    english_metadata: Option<&LcscProduct>,
+    stroke_color_bgr: i32,
+    fill_color_bgr: i32,
+) -> Result<Component> {
     let metadata = build_schlib_metadata(
         item,
         symbol_data,
@@ -206,7 +228,13 @@ pub(crate) fn build_schlib_component_from_detail(
         footprint_library_file,
         english_metadata,
     );
-    build_component_from_payload_with_metadata(symbol_data, component_name, &metadata)
+    build_component_from_payload_with_metadata_and_color(
+        symbol_data,
+        component_name,
+        &metadata,
+        stroke_color_bgr,
+        fill_color_bgr,
+    )
 }
 
 pub async fn build_pcblib_library_for_item(
@@ -289,7 +317,7 @@ pub async fn export_schlib(
     out_dir: &Path,
     force: bool,
 ) -> Result<PathBuf> {
-    export_schlib_with_options(client, item, out_dir, force, false).await
+    export_schlib_with_options(client, item, out_dir, force, false, 0x68380B, 0xE0FFFF).await
 }
 
 pub async fn export_schlib_with_options(
@@ -298,6 +326,8 @@ pub async fn export_schlib_with_options(
     out_dir: &Path,
     force: bool,
     english_metadata: bool,
+    stroke_color_bgr: i32,
+    fill_color_bgr: i32,
 ) -> Result<PathBuf> {
     fs::create_dir_all(out_dir)?;
     let symbol_uuid = item
@@ -331,13 +361,15 @@ pub async fn export_schlib_with_options(
         None
     };
 
-    let component = build_schlib_component_from_detail(
+    let component = build_schlib_component_from_detail_with_color(
         item,
         &symbol_data,
         &component_name,
         footprint_model_name.as_deref(),
         footprint_library_file.as_deref(),
         english_metadata.as_ref(),
+        stroke_color_bgr,
+        fill_color_bgr,
     )?;
     write_schlib(&component, &out_file)?;
     Ok(out_file)

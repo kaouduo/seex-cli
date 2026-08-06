@@ -6,6 +6,8 @@ use crate::kicad::symbol::*;
 pub struct SymbolExporter {
     version: KicadVersion,
     converter: Converter,
+    schematic_stroke_color: [u8; 3],
+    schematic_fill_color: [u8; 3],
 }
 
 fn has_flat_symbol_content(symbol: &KiSymbol) -> bool {
@@ -18,11 +20,26 @@ fn has_flat_symbol_content(symbol: &KiSymbol) -> bool {
 }
 
 impl SymbolExporter {
-    pub fn new(version: KicadVersion) -> Self {
+    pub fn new(
+        version: KicadVersion,
+        schematic_stroke_color: [u8; 3],
+        schematic_fill_color: [u8; 3],
+    ) -> Self {
         Self {
             version,
             converter: Converter::new(version),
+            schematic_stroke_color,
+            schematic_fill_color,
         }
+    }
+
+    fn color(&self) -> String {
+        format!(
+            "{} {} {}",
+            self.schematic_stroke_color[0],
+            self.schematic_stroke_color[1],
+            self.schematic_stroke_color[2]
+        )
     }
 
     pub fn export(&self, symbol: &KiSymbol) -> Result<String> {
@@ -377,14 +394,25 @@ impl SymbolExporter {
         let _width = self.converter.px_to_mm(rect.stroke_width);
 
         let fill = if rect.fill {
-            "(fill (type color) (color 255 192 203 1))"
+            format!(
+                "(fill (type color) (color {} {} {} 1))",
+                self.schematic_fill_color[0],
+                self.schematic_fill_color[1],
+                self.schematic_fill_color[2]
+            )
         } else {
-            "(fill (type none))"
+            "(fill (type none))".to_string()
         };
 
         format!(
-            "      (rectangle\n        (start {:.2} {:.2})\n        (end {:.2} {:.2})\n        (stroke (width {}) (type default) (color 0 0 0 0))\n        {}\n      )\n",
-            x1, y1, x2, y2, 0, fill
+            "      (rectangle\n        (start {:.2} {:.2})\n        (end {:.2} {:.2})\n        (stroke (width {}) (type default) (color {} 0))\n        {}\n      )\n",
+            x1,
+            y1,
+            x2,
+            y2,
+            0,
+            self.color(),
+            fill
         )
     }
 
@@ -409,8 +437,13 @@ impl SymbolExporter {
         let fill = "none";
 
         format!(
-            "      (circle\n        (center {:.2} {:.2})\n        (radius {:.2})\n        (stroke (width {}) (type default) (color 0 0 0 0))\n        (fill (type {}))\n      )\n",
-            cx, cy, radius, 0, fill
+            "      (circle\n        (center {:.2} {:.2})\n        (radius {:.2})\n        (stroke (width {}) (type default) (color {} 0))\n        (fill (type {}))\n      )\n",
+            cx,
+            cy,
+            radius,
+            0,
+            self.color(),
+            fill
         )
     }
 
@@ -435,8 +468,15 @@ impl SymbolExporter {
         let width = self.converter.px_to_mm(arc.stroke_width);
 
         format!(
-            "    (arc (start {:.4} {:.4}) (mid {:.4} {:.4}) (end {:.4} {:.4})\n      (stroke (width {:.4}) (type default))\n      (fill (type none))\n    )\n",
-            start_x, start_y, mid_x, mid_y, end_x, end_y, width
+            "    (arc (start {:.4} {:.4}) (mid {:.4} {:.4}) (end {:.4} {:.4})\n      (stroke (width {:.4}) (type default) (color {} 0))\n      (fill (type none))\n    )\n",
+            start_x,
+            start_y,
+            mid_x,
+            mid_y,
+            end_x,
+            end_y,
+            width,
+            self.color()
         )
     }
 
@@ -454,8 +494,9 @@ impl SymbolExporter {
 
         output.push_str("      )\n");
         output.push_str(&format!(
-            "      (stroke (width {:.4}) (type default))\n",
-            width
+            "      (stroke (width {:.4}) (type default) (color {} 0))\n",
+            width,
+            self.color()
         ));
         output.push_str(&format!("      (fill (type {}))\n", fill));
         output.push_str("    )\n");
@@ -509,7 +550,7 @@ mod tests {
 
     #[test]
     fn v6_exports_each_symbol_unit() {
-        let exporter = SymbolExporter::new(KicadVersion::V6);
+        let exporter = SymbolExporter::new(KicadVersion::V6, [11, 56, 104], [255, 255, 224]);
         let symbol = KiSymbol {
             name: "MultiPart".to_string(),
             reference: "U".to_string(),

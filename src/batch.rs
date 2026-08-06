@@ -16,7 +16,7 @@ use crate::altium::merge::{
 };
 use crate::altium::pcblib::{PcbLibrary, write_pcblib};
 use crate::altium::workflow::{
-    build_pcblib_library_from_detail, build_schlib_component_from_detail, export_pcblib,
+    build_pcblib_library_from_detail, build_schlib_component_from_detail_with_color, export_pcblib,
     export_schlib_with_options, resolved_footprint_name,
 };
 use crate::error::{AppError, Result};
@@ -38,6 +38,8 @@ pub struct BatchOptions {
     pub continue_on_error: bool,
     pub english_metadata: bool,
     pub force: bool,
+    pub schematic_stroke_color: [u8; 3],
+    pub schematic_fill_color: [u8; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -710,6 +712,8 @@ async fn export_merged_components_parallel(
         targets,
         named,
         merged_pcblib_file,
+        options.schematic_stroke_color,
+        options.schematic_fill_color,
         parallel,
         summary,
         progress,
@@ -846,6 +850,8 @@ async fn build_merged_components_parallel(
     targets: ExportTargets,
     named: Vec<NamedMergeComponent>,
     merged_pcblib_file: &str,
+    schematic_stroke_color: [u8; 3],
+    schematic_fill_color: [u8; 3],
     parallel: usize,
     summary: &mut BatchSummary,
     progress: &mut BatchProgress,
@@ -865,9 +871,15 @@ async fn build_merged_components_parallel(
                 .await
                 .expect("merge build semaphore should remain open");
             let id = named.id.clone();
-            let result =
-                build_named_merged_component(&client, targets, named, merged_pcblib_file.as_str())
-                    .await;
+            let result = build_named_merged_component(
+                &client,
+                targets,
+                named,
+                merged_pcblib_file.as_str(),
+                schematic_stroke_color,
+                schematic_fill_color,
+            )
+            .await;
             (id, result)
         });
     }
@@ -907,19 +919,27 @@ async fn build_named_merged_component(
     targets: ExportTargets,
     named: NamedMergeComponent,
     merged_pcblib_file: &str,
+    schematic_stroke_color: [u8; 3],
+    schematic_fill_color: [u8; 3],
 ) -> Result<IndexedMergeArtifacts> {
     let schlib_record = if targets.schlib {
         let symbol_data = named
             .symbol_data
             .as_ref()
             .ok_or(AppError::MissingSymbolOrFootprint)?;
-        let component = build_schlib_component_from_detail(
+        let component = build_schlib_component_from_detail_with_color(
             &named.item,
             symbol_data,
             &named.component_name,
             Some(&named.footprint_name),
             Some(merged_pcblib_file),
             named.english_metadata.as_ref(),
+            schematic_stroke_color[0] as i32
+                | ((schematic_stroke_color[1] as i32) << 8)
+                | ((schematic_stroke_color[2] as i32) << 16),
+            schematic_fill_color[0] as i32
+                | ((schematic_fill_color[1] as i32) << 8)
+                | ((schematic_fill_color[2] as i32) << 16),
         )?;
         Some(schlib_record_from_component(&component)?)
     } else {
@@ -1140,6 +1160,12 @@ async fn export_component(
             &schlib_dir,
             options.force,
             options.english_metadata,
+            options.schematic_stroke_color[0] as i32
+                | ((options.schematic_stroke_color[1] as i32) << 8)
+                | ((options.schematic_stroke_color[2] as i32) << 16),
+            options.schematic_fill_color[0] as i32
+                | ((options.schematic_fill_color[1] as i32) << 8)
+                | ((options.schematic_fill_color[2] as i32) << 16),
         )
         .await?;
     }
@@ -1271,6 +1297,8 @@ mod tests {
             continue_on_error: false,
             english_metadata: false,
             force: false,
+            schematic_stroke_color: [11, 56, 104],
+            schematic_fill_color: [255, 255, 224],
         };
 
         assert_eq!(resolve_library_name(&options), "ids");

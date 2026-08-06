@@ -69,7 +69,11 @@ pub fn convert_symbol(
     }
 
     // Export symbol
-    let exporter = kicad::SymbolExporter::new(args.kicad_version);
+    let exporter = kicad::SymbolExporter::new(
+        args.kicad_version,
+        args.schematic_stroke_color,
+        args.schematic_fill_color,
+    );
     let symbol_data = exporter.export(&ki_symbol)?;
 
     let lib_path = lib_manager.get_symbol_lib_path();
