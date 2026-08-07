@@ -544,12 +544,7 @@ impl SeexApp {
                     for (idx, item) in items.iter().enumerate() {
                         row_frame(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.monospace(RichText::new(&item.last_seen).color(muted()));
                                 ui.label(RichText::new(&item.lcsc_id).strong().color(primary()));
-                                count_chip_with_label(ui, "x", item.count, muted());
-                                ui.label(
-                                    RichText::new(first_line(&item.source_text, 72)).color(muted()),
-                                );
                                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui.small_button(self.t("Delete", "删除")).clicked() {
                                         delete_index = Some(idx);
@@ -1596,10 +1591,6 @@ fn metric_pill_text(ui: &mut Ui, text: &str, color: Color32) -> egui::Response {
 
 fn count_chip(ui: &mut Ui, value: usize, color: Color32) {
     chip(ui, &value.to_string(), color);
-}
-
-fn count_chip_with_label(ui: &mut Ui, label: &str, value: usize, color: Color32) {
-    chip(ui, &format!("{label}{value}"), color);
 }
 
 fn chip(ui: &mut Ui, label: &str, color: Color32) {
