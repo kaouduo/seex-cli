@@ -25,7 +25,8 @@ use std::time::{Duration, Instant};
 use arboard::Clipboard;
 use eframe::egui::{
     self, Color32, ComboBox, Context, FontData, FontDefinitions, FontFamily, FontId, Frame, Layout,
-    Margin, RichText, ScrollArea, Stroke, TextEdit, TextStyle, Theme, Ui, Vec2, ViewportBuilder,
+    Margin, RichText, ScrollArea, Stroke, TextEdit, TextStyle, Theme, Ui, UiBuilder, Vec2,
+    ViewportBuilder,
 };
 use monitor::{MonitorHandle, MonitorState};
 
@@ -130,6 +131,11 @@ enum Lang {
     Zh,
 }
 
+enum ManualImportStatus {
+    Imported(usize),
+    NoIds,
+}
+
 #[derive(Clone, Default)]
 struct UpdateState {
     checking: bool,
@@ -168,7 +174,7 @@ struct SeexApp {
     schematic_fill_hex: String,
     active_color_picker: Option<u8>,
     manual_import_text: String,
-    manual_import_status: Option<String>,
+    manual_import_status: Option<ManualImportStatus>,
 }
 
 impl SeexApp {
@@ -381,48 +387,24 @@ impl SeexApp {
     }
 
     fn manual_import_panel(&mut self, ui: &mut Ui, min_height: f32) {
-        let paste_label = self.t("Paste Text for Import", "粘贴文本导入");
         let import_label = self.t("Import IDs", "导入 ID");
-        let hint = self.t(
-            "Paste component IDs, LCSC links, or copied product text here.",
-            "可粘贴元件 ID、立创链接或复制的商品信息。",
-        );
-        let input_hint = self.t(
-            "Example: C2040, C2927505, or an LCSC product URL",
-            "示例：C2040、C2927505 或立创商品链接",
-        );
+        let input_hint = self.t("Example: C2040, C42", "示例：C2040, C42");
 
         section_with_min_height(ui, min_height, |ui| {
-            section_header(ui, self.t("Manual import", "手动导入"), hint);
+            ui.label(
+                RichText::new(self.t("Manual import", "手动导入"))
+                    .strong()
+                    .color(text_color()),
+            );
             ui.add_space(8.0);
-            ui.add(
+            ui.add_sized(
+                Vec2::new(ui.available_width(), 92.0),
                 TextEdit::multiline(&mut self.manual_import_text)
-                    .desired_rows(3)
                     .desired_width(f32::INFINITY)
                     .hint_text(input_hint),
             );
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
-                if ui.button(paste_label).clicked() {
-                    match Clipboard::new().and_then(|mut clipboard| clipboard.get_text()) {
-                        Ok(text) => {
-                            self.manual_import_text = text;
-                            self.manual_import_status = Some(
-                                self.t(
-                                    "Clipboard text loaded. Review it, then click Import IDs.",
-                                    "已读取剪贴板文本，请确认后点击“导入 ID”。",
-                                )
-                                .to_string(),
-                            );
-                        }
-                        Err(_) => {
-                            self.manual_import_status = Some(self.t(
-                                "Clipboard is busy or unavailable. Paste directly into the box.",
-                                "剪贴板被占用或不可用，请直接粘贴到输入框。",
-                            ).to_string());
-                        }
-                    }
-                }
                 if ui.button(import_label).clicked() {
                     let text = std::mem::take(&mut self.manual_import_text);
                     let result = self
@@ -436,18 +418,23 @@ impl SeexApp {
                         })
                         .unwrap_or(0);
                     self.manual_import_status = Some(if result == 0 {
-                        self.t("No LCSC component IDs found.", "未找到立创元件 ID。")
-                            .to_string()
+                        ManualImportStatus::NoIds
                     } else {
-                        format!(
-                            "{} {}",
-                            result,
-                            self.t("unique ID(s) imported.", "个唯一 ID 已导入。")
-                        )
+                        ManualImportStatus::Imported(result)
                     });
                 }
                 if let Some(status) = &self.manual_import_status {
-                    ui.label(RichText::new(status).color(muted()));
+                    let message = match status {
+                        ManualImportStatus::Imported(count) => format!(
+                            "{} {}",
+                            count,
+                            self.t("unique ID(s) imported.", "个唯一 ID 已导入。")
+                        ),
+                        ManualImportStatus::NoIds => self
+                            .t("No LCSC component IDs found.", "未找到立创元件 ID。")
+                            .to_string(),
+                    };
+                    ui.label(RichText::new(message).color(muted()));
                 }
             });
         });
@@ -1365,24 +1352,19 @@ fn section(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
 
 fn section_with_min_height(ui: &mut Ui, min_height: f32, add_contents: impl FnOnce(&mut Ui)) {
     let width = ui.available_width();
-    ui.allocate_ui_with_layout(
-        Vec2::new(width, min_height),
-        Layout::top_down(egui::Align::Min),
-        |ui| {
-            ui.set_width(width);
-            ui.set_min_height(min_height);
-            Frame::new()
-                .fill(surface())
-                .stroke(Stroke::new(1.0, border()))
-                .inner_margin(Margin::symmetric(18, 16))
-                .show(ui, |ui| {
-                    ui.set_width((width - 36.0).max(0.0));
-                    ui.set_min_height((min_height - 32.0).max(0.0));
-                    ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
-                    add_contents(ui);
-                });
-        },
-    );
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, min_height), egui::Sense::hover());
+    let frame = Frame::new()
+        .fill(surface())
+        .stroke(Stroke::new(1.0, border()))
+        .inner_margin(Margin::symmetric(18, 16));
+    ui.painter().add(frame.paint(rect));
+    let inner_rect = rect.shrink2(Vec2::new(18.0, 16.0));
+    ui.scope_builder(UiBuilder::new().max_rect(inner_rect), |ui| {
+        ui.set_width(inner_rect.width());
+        ui.set_height(inner_rect.height());
+        ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
+        add_contents(ui);
+    });
 }
 
 fn row_frame(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
