@@ -161,6 +161,7 @@ struct SeexApp {
     last_theme_check: Instant,
     update_state: Arc<Mutex<UpdateState>>,
     show_donate: bool,
+    show_failed_ids: bool,
     schematic_stroke_color: [u8; 3],
     schematic_fill_color: [u8; 3],
     schematic_stroke_hex: String,
@@ -214,6 +215,7 @@ impl SeexApp {
             last_theme_check: Instant::now(),
             update_state: Arc::new(Mutex::new(UpdateState::default())),
             show_donate: config.show_donate,
+            show_failed_ids: false,
             schematic_stroke_color: config.export.schematic_stroke_color,
             schematic_fill_color: config.export.schematic_fill_color,
             schematic_stroke_hex: color_to_hex(config.export.schematic_stroke_color),
@@ -630,6 +632,9 @@ impl SeexApp {
         let mut schematic_stroke_hex = self.schematic_stroke_hex.clone();
         let mut schematic_fill_hex = self.schematic_fill_hex.clone();
         let mut active_color_picker = self.active_color_picker;
+        let mut toggle_failed_ids = false;
+        let show_failed_ids = self.show_failed_ids;
+        let mut show_failed_ids_popup = self.show_failed_ids;
 
         if let Ok(mut state) = self.state.lock() {
             let matched_count = state.matched.len();
@@ -644,8 +649,24 @@ impl SeexApp {
                     ))
                     .color(muted()),
                 );
-                ui.add_space(8.0);
                 ui.horizontal(|ui| {
+                    if let Some(result) = &state.export_last_result {
+                        if render_export_metrics(ui, result, self.lang) {
+                            toggle_failed_ids = true;
+                        }
+                    }
+                    if let Some(progress) = &state.export_progress {
+                        let value = if progress.total > 0 {
+                            progress.current as f32 / progress.total as f32
+                        } else {
+                            0.0
+                        };
+                        let width = (ui.available_width() - 160.0).max(120.0);
+                        ui.add_sized(
+                            [width, 34.0],
+                            egui::ProgressBar::new(value).text(&progress.message),
+                        );
+                    }
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add_enabled(
@@ -680,36 +701,31 @@ impl SeexApp {
                         }
                     });
                 });
-                if let Some(progress) = &state.export_progress {
-                    ui.add_space(6.0);
-                    if progress.determinate && progress.total > 0 {
-                        let value = progress.current as f32 / progress.total as f32;
-                        ui.add(egui::ProgressBar::new(value).text(&progress.message));
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(&progress.message);
-                        });
-                    }
-                }
                 if let Some(result) = &state.export_last_result {
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-                    render_export_result(ui, result);
                     let failed = extract_failed_ids(result);
-                    ui.horizontal(|ui| {
-                        if !failed.is_empty()
-                            && ui
-                                .button(self.t("Copy failed IDs", "复制失败 ID"))
-                                .clicked()
-                        {
-                            copy_to_clipboard(&failed.join("\n"));
-                        }
-                        if ui.button(self.t("Copy details", "复制详情")).clicked() {
-                            copy_to_clipboard(result);
-                        }
-                    });
+                    if show_failed_ids && !failed.is_empty() {
+                        let title = self.t("Failed IDs", "失败 ID");
+                        let ids = failed.join(", ");
+                        let viewport_center = ui
+                            .ctx()
+                            .input(|input| input.viewport().inner_rect)
+                            .map(|rect| rect.center())
+                            .unwrap_or_else(|| ui.max_rect().center());
+                        egui::Window::new(title)
+                            .collapsible(false)
+                            .resizable(true)
+                            .default_width(420.0)
+                            .default_pos(viewport_center - Vec2::new(210.0, 45.0))
+                            .open(&mut show_failed_ids_popup)
+                            .show(ui.ctx(), |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&ids).monospace().color(danger()),
+                                    )
+                                    .selectable(true),
+                                );
+                            });
+                    }
                 }
             });
 
@@ -887,6 +903,10 @@ impl SeexApp {
         self.schematic_stroke_hex = schematic_stroke_hex;
         self.schematic_fill_hex = schematic_fill_hex;
         self.active_color_picker = active_color_picker;
+        if toggle_failed_ids {
+            show_failed_ids_popup = !show_failed_ids_popup;
+        }
+        self.show_failed_ids = show_failed_ids_popup;
         if save_config {
             self.save_config();
         }
@@ -1560,7 +1580,18 @@ fn empty_state(ui: &mut Ui, label: &str) {
 }
 
 fn metric_pill(ui: &mut Ui, label: &str, value: usize, color: Color32) {
-    chip(ui, &format!("{label} {value}"), color);
+    let _ = metric_pill_text(ui, &format!("{label} {value}"), color);
+}
+
+fn metric_pill_text(ui: &mut Ui, text: &str, color: Color32) -> egui::Response {
+    let font = FontId::new(scaled_font(25.0), FontFamily::Proportional);
+    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
+    let size = galley.size() + Vec2::new(20.0, 10.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    ui.painter().rect_filled(rect, 12.0, chip_bg(color));
+    ui.painter()
+        .galley(rect.center() - galley.size() * 0.5, galley, color);
+    response
 }
 
 fn count_chip(ui: &mut Ui, value: usize, color: Color32) {
@@ -1648,50 +1679,48 @@ fn first_line(content: &str, max_chars: usize) -> String {
     line
 }
 
-fn render_export_result(ui: &mut Ui, result: &str) {
+fn render_export_metrics(ui: &mut Ui, result: &str, lang: Lang) -> bool {
+    let mut metrics = Vec::new();
     for line in result.lines().filter(|line| !line.trim().is_empty()) {
         let trimmed = line.trim();
-        let color = if is_success_result_line(trimmed) {
-            success()
-        } else if is_failure_result_line(trimmed) {
-            danger()
-        } else if is_muted_result_line(trimmed) {
-            muted()
-        } else {
-            text_color()
-        };
-        let text = if trimmed.starts_with("Generated:") || trimmed.starts_with("Output directory:")
-        {
-            RichText::new(trimmed).monospace().color(color)
-        } else {
-            RichText::new(trimmed).color(color)
-        };
-        ui.label(text);
+        if let Some(value) = trimmed.strip_prefix("Elapsed:") {
+            metrics.push(("Elapsed", value.trim()));
+        } else if trimmed.contains("Total:") {
+            for key in ["Total", "Success", "Skipped", "Failed"] {
+                if let Some((_, value)) = trimmed.split_once(&format!("{key}:")) {
+                    metrics.push((key, value.split('|').next().unwrap_or(value).trim()));
+                }
+            }
+        }
     }
-}
 
-fn is_success_result_line(line: &str) -> bool {
-    line == "Status: Success"
-        || line.starts_with("Elapsed:")
-        || line.starts_with("Stage totals:")
-        || line.starts_with("3D models:")
-        || line.starts_with("Generated:")
-        || (line.contains("Success:") && line.contains("Failed: 0"))
-}
-
-fn is_failure_result_line(line: &str) -> bool {
-    line == "Status: Failed"
-        || line.starts_with("Failed IDs:")
-        || line.starts_with("FAILED ")
-        || line.starts_with("export ")
-        || line.contains(" failed")
-}
-
-fn is_muted_result_line(line: &str) -> bool {
-    line.starts_with("Targets:")
-        || line.starts_with("Target:")
-        || line.starts_with("Output directory:")
-        || line.starts_with("Exit:")
+    let labels = match lang {
+        Lang::En => ["Elapsed", "Total", "Success", "Skipped", "Failed"],
+        Lang::Zh => ["耗时", "总数", "成功", "跳过", "失败"],
+    };
+    let keys = ["Elapsed", "Total", "Success", "Skipped", "Failed"];
+    let mut failed_clicked = false;
+    ui.horizontal(|ui| {
+        for (index, label) in labels.iter().enumerate() {
+            let value = metrics
+                .iter()
+                .find(|(key, _)| *key == keys[index])
+                .map(|(_, value)| *value)
+                .unwrap_or("0");
+            let color = if keys[index] == "Elapsed" || keys[index] == "Success" {
+                success()
+            } else if keys[index] == "Failed" && value != "0" {
+                danger()
+            } else {
+                text_color()
+            };
+            let response = metric_pill_text(ui, &format!("{label} {value}"), color);
+            if keys[index] == "Failed" && value != "0" && response.clicked() {
+                failed_clicked = true;
+            }
+        }
+    });
+    failed_clicked
 }
 
 fn extract_failed_ids(result: &str) -> Vec<String> {

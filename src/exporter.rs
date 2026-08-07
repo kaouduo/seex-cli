@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::monitor::{ExportProgressState, MonitorState};
+use crate::monitor::{ExportProgressCallback, ExportProgressState, MonitorState};
 
 const DEFAULT_LIBRARY_NAME: &str = "SeExMerged";
 const DEFAULT_OUTPUT_DIR: &str = "export_export";
@@ -39,7 +39,6 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
         s.export_running = true;
         s.export_last_result = None;
         s.export_progress = Some(ExportProgressState {
-            determinate: false,
             current: 0,
             total: req.ids.len(),
             message: "Preparing export export...".to_string(),
@@ -57,7 +56,7 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
             if let Some(path) = &input_path {
                 write_ids_file(path, &req.ids)?;
             }
-            set_progress(&state, running_message(&req), false, 0, req.ids.len());
+            set_progress(&state, running_message(&req), 0, req.ids.len());
             if !is_kicad_target(&req) {
                 if normalize_altium_mode(&req.mode) == "3d" {
                     return run_altium_3d_api(&req, &state, started_at);
@@ -65,7 +64,12 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
                 let input_path = input_path
                     .as_ref()
                     .ok_or_else(|| "missing export batch input path".to_string())?;
-                return run_altium_api(&req, input_path, started_at);
+                return run_altium_api(
+                    &req,
+                    input_path,
+                    started_at,
+                    progress_callback(state.clone()),
+                );
             }
 
             let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -73,9 +77,12 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
                 .build()
                 .map_err(|err| err.to_string())?;
             runtime.block_on(async {
-                let summary = export_kicad_batch(build_kicad_batch_options(&req))
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let summary = export_kicad_batch(build_kicad_batch_options(
+                    &req,
+                    Some(progress_callback(state.clone())),
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
                 Ok(format_kicad_summary(&req, &summary, started_at.elapsed()))
             })
         })();
@@ -101,13 +108,11 @@ pub fn spawn_export(state: Arc<Mutex<MonitorState>>, req: ExportRequest) {
 fn set_progress(
     state: &Arc<Mutex<MonitorState>>,
     message: impl Into<String>,
-    determinate: bool,
     current: usize,
     total: usize,
 ) {
     if let Ok(mut s) = state.lock() {
         s.export_progress = Some(ExportProgressState {
-            determinate,
             current,
             total,
             message: message.into(),
@@ -154,6 +159,7 @@ fn run_altium_api(
     req: &ExportRequest,
     input_path: &Path,
     started_at: Instant,
+    progress: ExportProgressCallback,
 ) -> Result<String, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -161,9 +167,12 @@ fn run_altium_api(
         .map_err(|err| err.to_string())?;
     runtime.block_on(async {
         let client = LcedaClient::new();
-        let summary = export_batch(&client, build_batch_options(req, &input_path.to_path_buf()))
-            .await
-            .map_err(|e| e.to_string())?;
+        let summary = export_batch(
+            &client,
+            build_batch_options(req, &input_path.to_path_buf(), Some(progress)),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         Ok(format_altium_summary(req, &summary, started_at.elapsed()))
     })
 }
@@ -209,7 +218,6 @@ fn run_altium_3d_api(
             set_progress(
                 state,
                 format!("Downloading 3D models: {completed}/{total}"),
-                true,
                 completed,
                 total,
             );
@@ -235,7 +243,11 @@ fn run_altium_3d_api(
     })
 }
 
-fn build_batch_options(req: &ExportRequest, input_path: &PathBuf) -> BatchOptions {
+fn build_batch_options(
+    req: &ExportRequest,
+    input_path: &PathBuf,
+    progress: Option<ExportProgressCallback>,
+) -> BatchOptions {
     let mode = normalize_altium_mode(&req.mode);
     let append = req.append && req.merge;
     BatchOptions {
@@ -253,10 +265,14 @@ fn build_batch_options(req: &ExportRequest, input_path: &PathBuf) -> BatchOption
         force: req.force,
         schematic_stroke_color: req.schematic_stroke_color,
         schematic_fill_color: req.schematic_fill_color,
+        progress,
     }
 }
 
-fn build_kicad_batch_options(req: &ExportRequest) -> KicadBatchOptions {
+fn build_kicad_batch_options(
+    req: &ExportRequest,
+    progress: Option<ExportProgressCallback>,
+) -> KicadBatchOptions {
     let mode = normalize_kicad_mode(&req.mode);
     KicadBatchOptions {
         ids: req.ids.clone(),
@@ -280,7 +296,19 @@ fn build_kicad_batch_options(req: &ExportRequest) -> KicadBatchOptions {
         english_metadata: req.lcsc_english,
         parallel: req.parallel.max(1),
         continue_on_error: req.continue_on_error,
+        progress,
     }
+}
+
+fn progress_callback(state: Arc<Mutex<MonitorState>>) -> ExportProgressCallback {
+    Arc::new(move |current, total, subject| {
+        set_progress(
+            &state,
+            format!("{current}/{total}: {subject}"),
+            current,
+            total,
+        );
+    })
 }
 
 fn is_kicad_target(req: &ExportRequest) -> bool {

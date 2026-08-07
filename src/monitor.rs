@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use crate::extract::extract_lcsc_ids;
 
+pub type ExportProgressCallback = Arc<dyn Fn(usize, usize, &str) + Send + Sync>;
+
 pub fn default_save_path(filename: &str) -> String {
     std::env::current_exe()
         .ok()
@@ -27,7 +29,6 @@ pub struct MatchedEntry {
 
 #[derive(Clone)]
 pub struct ExportProgressState {
-    pub determinate: bool,
     pub current: usize,
     pub total: usize,
     pub message: String,

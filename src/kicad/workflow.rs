@@ -16,6 +16,7 @@ use crate::kicad::{
 };
 use crate::lcsc::LcscClient;
 use crate::metadata::ResolvedMetadata;
+use crate::monitor::ExportProgressCallback;
 
 #[derive(Debug, Clone)]
 pub struct KicadSingleOptions {
@@ -25,7 +26,7 @@ pub struct KicadSingleOptions {
     pub english_metadata: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct KicadBatchOptions {
     pub ids: Vec<String>,
     pub library: KicadLibraryOptions,
@@ -33,6 +34,7 @@ pub struct KicadBatchOptions {
     pub english_metadata: bool,
     pub parallel: usize,
     pub continue_on_error: bool,
+    pub progress: Option<ExportProgressCallback>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,7 @@ pub async fn export_kicad_single(options: KicadSingleOptions) -> Result<KicadBat
         english_metadata: options.english_metadata,
         parallel: 1,
         continue_on_error: false,
+        progress: None,
     };
     export_kicad_batch(batch_options).await
 }
@@ -144,6 +147,10 @@ pub async fn export_kicad_batch(options: KicadBatchOptions) -> Result<KicadBatch
         models: KicadModelSummary::default(),
     };
 
+    if let Some(progress) = &options.progress {
+        progress(skipped, summary.total, "Preparing KiCad export");
+    }
+
     if ids.is_empty() {
         return Ok(summary);
     }
@@ -185,6 +192,13 @@ pub async fn export_kicad_batch(options: KicadBatchOptions) -> Result<KicadBatch
                 summary.success += 1;
                 summary.timings.add(exported.timings);
                 summary.models.record(exported.model);
+                if let Some(progress) = &options.progress {
+                    progress(
+                        summary.success + summary.failed + summary.skipped,
+                        summary.total,
+                        &format!("Exported {id}"),
+                    );
+                }
             }
             Ok((id, Err(err))) => {
                 summary.failed += 1;
@@ -192,6 +206,13 @@ pub async fn export_kicad_batch(options: KicadBatchOptions) -> Result<KicadBatch
                 summary.failure_details.push(format!("{id}: {err}"));
                 if first_error.is_none() {
                     first_error = Some(err);
+                }
+                if let Some(progress) = &options.progress {
+                    progress(
+                        summary.success + summary.failed + summary.skipped,
+                        summary.total,
+                        &format!("Failed {id}"),
+                    );
                 }
             }
             Err(err) => {

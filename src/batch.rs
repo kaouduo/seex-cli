@@ -22,9 +22,10 @@ use crate::altium::workflow::{
 use crate::error::{AppError, Result};
 use crate::lceda::{LcedaClient, SearchItem};
 use crate::lcsc::{LcscClient, LcscProduct};
+use crate::monitor::ExportProgressCallback;
 use crate::util::sanitize_filename;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BatchOptions {
     pub input: PathBuf,
     pub output: PathBuf,
@@ -40,6 +41,7 @@ pub struct BatchOptions {
     pub force: bool,
     pub schematic_stroke_color: [u8; 3],
     pub schematic_fill_color: [u8; 3],
+    pub progress: Option<ExportProgressCallback>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +107,7 @@ pub async fn export_batch(client: &LcedaClient, options: BatchOptions) -> Result
         batch_mode_label(&options),
         targets,
         &options.output,
+        options.progress.clone(),
     );
     if summary.skipped > 0 {
         progress.seed_skipped(summary.skipped, "checkpoint");
@@ -248,6 +251,7 @@ struct BatchProgress {
     started_at: Instant,
     last_subject: Option<String>,
     last_render_width: usize,
+    progress: Option<ExportProgressCallback>,
 }
 
 impl BatchProgress {
@@ -257,6 +261,7 @@ impl BatchProgress {
         mode_label: &str,
         targets: ExportTargets,
         output: &Path,
+        progress_callback: Option<ExportProgressCallback>,
     ) -> Self {
         eprintln!(
             "Batch mode: {mode_label} | targets: {} | parallel: {}",
@@ -275,6 +280,7 @@ impl BatchProgress {
             started_at: Instant::now(),
             last_subject: None,
             last_render_width: 0,
+            progress: progress_callback,
         };
         progress.render();
         progress
@@ -346,6 +352,9 @@ impl BatchProgress {
             last,
             format_elapsed(self.started_at.elapsed().as_secs())
         );
+        if let Some(progress) = &self.progress {
+            progress(self.completed, self.total, last);
+        }
         self.draw_status_line(&message);
     }
 
@@ -407,6 +416,7 @@ async fn export_batch_merged(
         batch_mode_label(&options),
         targets,
         &options.output,
+        options.progress.clone(),
     );
 
     let result = if options.append {
@@ -1299,6 +1309,7 @@ mod tests {
             force: false,
             schematic_stroke_color: [11, 56, 104],
             schematic_fill_color: [255, 255, 224],
+            progress: None,
         };
 
         assert_eq!(resolve_library_name(&options), "ids");
