@@ -1391,8 +1391,12 @@ fn list_height(ui: &Ui, viewport_fraction: f32, minimum_rows: usize, row_height:
 
 fn section_header(ui: &mut Ui, title: &str, desc: &str) {
     ui.vertical(|ui| {
-        ui.label(RichText::new(title).strong().color(text_color()));
-        ui.label(RichText::new(desc).color(muted()));
+        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.label(RichText::new(title).strong().color(text_color()));
+        });
+        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.label(RichText::new(desc).color(muted()));
+        });
     });
 }
 
@@ -1404,9 +1408,12 @@ fn section_header_inline(ui: &mut Ui, title: &str, right: impl FnOnce(&mut Ui)) 
 }
 
 fn fixed_label(ui: &mut Ui, label: &str) {
-    ui.add_sized(
+    ui.allocate_ui_with_layout(
         Vec2::new(180.0, 30.0),
-        egui::Label::new(RichText::new(label).color(muted())),
+        Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.label(RichText::new(label).color(muted()));
+        },
     );
 }
 
