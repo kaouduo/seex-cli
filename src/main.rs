@@ -166,6 +166,8 @@ struct SeexApp {
     schematic_stroke_hex: String,
     schematic_fill_hex: String,
     active_color_picker: Option<u8>,
+    manual_import_text: String,
+    manual_import_status: Option<String>,
 }
 
 impl SeexApp {
@@ -217,6 +219,8 @@ impl SeexApp {
             schematic_stroke_hex: color_to_hex(config.export.schematic_stroke_color),
             schematic_fill_hex: color_to_hex(config.export.schematic_fill_color),
             active_color_picker: None,
+            manual_import_text: String::new(),
+            manual_import_status: None,
         }
     }
 
@@ -307,6 +311,8 @@ impl SeexApp {
         });
 
         ui.add_space(10.0);
+        self.manual_import_panel(ui);
+        ui.add_space(10.0);
         if let Ok(mut state) = self.state.lock() {
             section(ui, |ui| {
                 section_header(
@@ -372,6 +378,79 @@ impl SeexApp {
         self.monitor_actions(ui);
         ui.add_space(10.0);
         self.matched_list(ui);
+    }
+
+    fn manual_import_panel(&mut self, ui: &mut Ui) {
+        let paste_label = self.t("Paste Text for Import", "粘贴文本导入");
+        let import_label = self.t("Import IDs", "导入 ID");
+        let hint = self.t(
+            "Paste component IDs, LCSC links, or copied product text here.",
+            "可粘贴元件 ID、立创链接或复制的商品信息。",
+        );
+        let input_hint = self.t(
+            "Example: C2040, C2927505, or an LCSC product URL",
+            "示例：C2040、C2927505 或立创商品链接",
+        );
+
+        section(ui, |ui| {
+            section_header(ui, self.t("Manual import", "手动导入"), hint);
+            ui.add_space(8.0);
+            ui.add(
+                TextEdit::multiline(&mut self.manual_import_text)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY)
+                    .hint_text(input_hint),
+            );
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(paste_label).clicked() {
+                    match Clipboard::new().and_then(|mut clipboard| clipboard.get_text()) {
+                        Ok(text) => {
+                            self.manual_import_text = text;
+                            self.manual_import_status = Some(
+                                self.t(
+                                    "Clipboard text loaded. Review it, then click Import IDs.",
+                                    "已读取剪贴板文本，请确认后点击“导入 ID”。",
+                                )
+                                .to_string(),
+                            );
+                        }
+                        Err(_) => {
+                            self.manual_import_status = Some(self.t(
+                                "Clipboard is busy or unavailable. Paste directly into the box.",
+                                "剪贴板被占用或不可用，请直接粘贴到输入框。",
+                            ).to_string());
+                        }
+                    }
+                }
+                if ui.button(import_label).clicked() {
+                    let text = std::mem::take(&mut self.manual_import_text);
+                    let result = self
+                        .state
+                        .lock()
+                        .map(|mut state| {
+                            let imported = extract::extract_lcsc_ids(&text);
+                            let count = imported.len();
+                            state.import_text(text);
+                            count
+                        })
+                        .unwrap_or(0);
+                    self.manual_import_status = Some(if result == 0 {
+                        self.t("No LCSC component IDs found.", "未找到立创元件 ID。")
+                            .to_string()
+                    } else {
+                        format!(
+                            "{} {}",
+                            result,
+                            self.t("unique ID(s) imported.", "个唯一 ID 已导入。")
+                        )
+                    });
+                }
+                if let Some(status) = &self.manual_import_status {
+                    ui.label(RichText::new(status).color(muted()));
+                }
+            });
+        });
     }
 
     fn monitor_actions(&mut self, ui: &mut Ui) {

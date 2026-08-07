@@ -164,9 +164,28 @@ impl MonitorState {
         }
 
         self.last_content = trimmed.clone();
+        self.record_import(trimmed, "New content");
+        true
+    }
+
+    /// Import text supplied explicitly by the user, independent of monitor state.
+    pub fn import_text(&mut self, content: String) -> bool {
+        let trimmed = content.trim().to_string();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        self.last_content = trimmed.clone();
+        self.initialized = true;
+        self.record_import(trimmed, "Manual import");
+        true
+    }
+
+    fn record_import(&mut self, trimmed: String, source: &str) {
         let timestamp = Local::now().format("%H:%M:%S").to_string();
         self.add_debug_log(format!(
-            "New content: {}",
+            "{}: {}",
+            source,
             trimmed.chars().take(50).collect::<String>()
         ));
 
@@ -215,7 +234,6 @@ impl MonitorState {
                 existing_count
             ));
         }
-        true
     }
 
     pub fn set_export_output_path(&mut self, path: String) {
@@ -413,5 +431,18 @@ mod tests {
         ];
 
         assert_eq!(state.get_unique_ids(), vec!["C2040"]);
+    }
+
+    #[test]
+    fn manual_import_works_when_monitoring_is_paused() {
+        let mut state = MonitorState::new();
+        state.monitoring = false;
+
+        assert!(
+            state.import_text(
+                "C2040, https://lcsc.com/product-detail/C2927505.html C2040".to_string()
+            )
+        );
+        assert_eq!(state.get_unique_ids(), vec!["C2927505", "C2040"]);
     }
 }
