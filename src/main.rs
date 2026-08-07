@@ -1549,10 +1549,13 @@ fn color_setting(
     ui.horizontal(|ui| {
         fixed_label(ui, label);
         let swatch = Color32::from_rgb(color[0], color[1], color[2]);
-        if ui
-            .add_sized(Vec2::splat(28.0), egui::Button::new("").fill(swatch))
-            .clicked()
-        {
+        let (swatch_rect, swatch_response) =
+            ui.allocate_exact_size(Vec2::splat(32.0), egui::Sense::click());
+        ui.painter()
+            .circle_filled(swatch_rect.center(), 13.0, swatch);
+        ui.painter()
+            .circle_stroke(swatch_rect.center(), 14.0, Stroke::new(1.0, border()));
+        if swatch_response.clicked() {
             *active_picker = if *active_picker == Some(picker_id) {
                 None
             } else {
