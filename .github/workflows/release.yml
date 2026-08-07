@@ -218,6 +218,12 @@ jobs:
     runs-on: ubuntu-26.04
     needs: [build, build-linux-distro]
     steps:
+      - name: Check out release notes
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/release_notes
+          sparse-checkout-cone-mode: true
+
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
@@ -229,4 +235,4 @@ jobs:
         with:
           tag_name: ${{ inputs.tag }}
           files: release-assets/*
-          generate_release_notes: true
+          body_path: .github/release_notes/${{ inputs.tag }}.md

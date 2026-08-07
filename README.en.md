@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icons/seex.png" alt="SeEx icon" width="160" />
+  <img src="assets/icons/seex.svg" alt="SeEx icon" width="200" />
 </p>
 
-<h1 align="center">SeEx</h1>
+<h1 align="center">SeEx (Seek and Export)</h1>
 
 <p align="center">
   <strong>Batch export LCSC components in formats supported by Altium Designer (AD) and KiCad.</strong>
@@ -19,9 +19,9 @@
 
 The project history, in chronological order:
 
-- The project began with `nlbn` (Nice Library Bring now). It was open-sourced and received a number of stars, but was uploaded to `Gitee` without permission. I stopped maintaining `nlbn` and realized that many people do not read the `README` or `License`, and have little respect for copyright or other people's work. Since the project originally only had an English README, which many people could not understand, `nlbn` is no longer maintained.
-- While developing `nlbn`, I reverse-engineered parts of the `Altium Designer` file format and gradually created `npnp` (Normalize Pin Net Pad). It was also open-sourced and copied. A corresponding `GUI` tool was then created. It used `tauri2`, and although it was rough, it helped many users.
-- That GUI tool became the current `seex` (seex & Export). It originally called the `npnp` `cli` for exports, which meant maintaining two repositories. After the refactor, `seex` no longer depends on `npnp`; it contains the required functionality directly and uses the `egui/eframe` GUI framework. From now on, only `seex` will be maintained and `npnp` binaries will no longer be released.
+- The project began with `nlbn` (Nice Library Bring now, a pun on "拿来吧你"). It was open-sourced and received a number of stars, but was later uploaded to `Gitee` without permission. I stopped maintaining `nlbn` and realized that many people do not read the `README` or `License`, and have little respect for copyright or other people's work. Since the project originally only had an English README, which many people could not understand, `nlbn` is no longer maintained.
+- While developing `nlbn`, I reverse-engineered parts of the `Altium Designer` file format and gradually created `npnp` (Normalize Pin Net Pad, a pun on "牛批牛批"). It was also open-sourced and copied. A corresponding `GUI` tool was then created using `tauri2`. Although it was rough, it helped many users solve their problems.
+- That GUI tool became the current `seex` (Seek and Export). It originally called the `npnp` `cli` for exports, which meant maintaining two repositories. After the refactor, `seex` no longer depends on `npnp`; it contains the required functionality directly and uses the `egui/eframe` GUI framework. From now on, only `seex` will be maintained and `npnp` binaries will no longer be released.
 - If you have a feature you would like to see, please contact me. Email: `lampmud@163.com` / `ybinlew@gmail.com`. You can also open an issue.
 - Please do not rewrite this tool in `python`. Python is not my `taste`. Thank you for understanding.
 
@@ -43,20 +43,21 @@ The project history, in chronological order:
 - [x] Export metadata in Chinese or English.
 - [x] Use multiple threads for downloads.
 - [x] Add new components to existing libraries exported by `seex`.
+- [x] Customize schematic stroke and fill colors.
 
 ## What Is Planned?
 
 - [ ] Support more `EDA` tools, such as `allegro` and `pads`.
-- [ ] Add `MCP` support.
-- [ ] Continue improving the workflow and fix more hidden `bugs`.
+- [ ] Continue improving the current workflow and fix more hidden `bugs`.
 - [ ] Keep improving interactions and usability, refine the icons, and try new design languages.
 - [ ] Explore a broadly applicable way to remove or hide parts of `3D` models, such as specific markings.
+- [ ] If projects need `CI` support, possibly restart and maintain the `npnp` `CLI` again.
 
 ## Who Would SeEx Like to Contribute?
 
 - [x] People with software design experience who can help maintain the software over time.
 - [x] People with good visual judgment who can provide valuable design feedback.
-- [x] Designers who can help redesign the software icon.
+- [x] Designers who can help redesign the software icon and interface layout.
 - [x] People who may have a better name for the software.
 
 ## What Will SeEx Not Support?
@@ -67,9 +68,8 @@ The project history, in chronological order:
 
 ### Export Examples
 
-KiCad symbols, footprints, and 3D models:
-
 <table>
+  <summary>KiCad examples</summary>
   <tr>
     <td align="center"><img src="imgs/kicad_symbol.png" alt="KiCad symbol" width="280" /><br /><sub>Symbol library</sub></td>
     <td align="center"><img src="imgs/kicad_footprint.png" alt="KiCad footprint" width="280" /><br /><sub>Footprint library</sub></td>
@@ -114,5 +114,5 @@ KiCad symbols, footprints, and 3D models:
 ## References And Thanks
 
 - Thanks to [`easyeda2kicad`](https://github.com/uPesy/easyeda2kicad.py) and [uPesy](https://github.com/uPesy) for the project's original inspiration. It is an excellent tool, and most EasyEDA import plugins related to `KiCad` are based on it.
-- Thanks to the community member Ju Mao for providing part of the `TOKEN`. I also paid for some of it, but the final result was roughly half purchased and half donated. `opus 4.6` was still very useful at the time, and it helped implement many features and establish a good foundation.
-- Thanks to everyone who helped test the project, including emoji @[z217-cpu](https://github.com/z217-cpu), Yang Yang @[Cloud-Lightning](https://github.com/Cloud-Lightning), and others.
+- Thanks to the community member 菊猫 for providing part of the `TOKEN`. I also paid for some of it, but the final result was roughly half purchased and half donated. `opus 4.6` was still very useful at the time, and it helped implement many features and establish a good foundation.
+- Thanks to everyone who helped test the project, including emoji老弟 @[z217-cpu](https://github.com/z217-cpu), 🐏🐏 @[Cloud-Lightning](https://github.com/Cloud-Lightning), and others.

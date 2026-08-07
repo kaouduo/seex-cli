@@ -4,7 +4,9 @@ use std::path::PathBuf;
 fn render_png(tree: &resvg::usvg::Tree, size: u32) -> Vec<u8> {
     let mut pixmap =
         resvg::tiny_skia::Pixmap::new(size, size).expect("failed to allocate SeEx logo raster");
-    let scale = size as f32 / 256.0;
+    // seex.svg uses a 1024 x 1024 viewBox. Keep the source coordinate system
+    // explicit so the whole mark is rendered into every generated icon size.
+    let scale = size as f32 / 1024.0;
     resvg::render(
         tree,
         resvg::tiny_skia::Transform::from_scale(scale, scale),
