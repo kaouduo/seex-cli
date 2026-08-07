@@ -186,7 +186,7 @@ jobs:
             install: dnf install -y git ca-certificates rust cargo gcc gcc-c++ make pkgconf-pkg-config openssl-devel libX11-devel libXi-devel libxcb-devel libXcursor-devel libXrandr-devel libXinerama-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel mesa-libGL-devel mesa-libEGL-devel gtk3-devel dbus-devel systemd-devel
           - container: archlinux:latest
             asset_suffix: arch-x86_64
-            install: sed -i '/^DisableSandbox$/d; /^\[options\]/a DisableSandbox' /etc/pacman.conf && pacman -Syu --noconfirm --needed git ca-certificates base-devel rust cargo pkgconf openssl libx11 libxi libxcb libxcursor libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3 dbus systemd-libs
+            install: sed -i "/^DisableSandbox/d; /^\[options\]/a DisableSandbox" /etc/pacman.conf && pacman -Syu --noconfirm --needed git ca-certificates base-devel rust cargo pkgconf openssl libx11 libxi libxcb libxcursor libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3 dbus systemd-libs
 
     steps:
       - name: Checkout release tag
