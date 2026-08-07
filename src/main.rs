@@ -16,9 +16,11 @@ mod metadata;
 mod monitor;
 mod util;
 
+use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
+    mpsc::{self, Receiver, Sender},
 };
 use std::time::{Duration, Instant};
 
@@ -37,6 +39,7 @@ const PATTERN_FULL: &str = "regex:编号[：:]\\s*(C\\d+)";
 const RELEASES_API_URL: &str = "https://api.github.com/repos/ref42/seex/releases/latest";
 const FONT_SCALE_FROM_CURRENT: f32 = 0.75;
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
+static THEME_PRESET: AtomicU8 = AtomicU8::new(0);
 
 fn main() -> eframe::Result {
     set_windows_app_id();
@@ -112,11 +115,6 @@ fn load_image_texture(ctx: &Context, name: &'static str, bytes: &[u8]) -> egui::
     )
 }
 
-fn fit_image_size(size: Vec2, max_size: Vec2) -> Vec2 {
-    let scale = (max_size.x / size.x).min(max_size.y / size.y).min(1.0);
-    size * scale
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Monitor,
@@ -151,6 +149,17 @@ struct GitHubRelease {
     html_url: String,
 }
 
+#[derive(Clone, Copy)]
+enum FileDialogKind {
+    SaveCsv,
+    PickFolder,
+}
+
+struct FileDialogResult {
+    kind: FileDialogKind,
+    path: Option<PathBuf>,
+}
+
 struct SeexApp {
     state: Arc<Mutex<MonitorState>>,
     _monitor: MonitorHandle,
@@ -167,6 +176,7 @@ struct SeexApp {
     last_theme_check: Instant,
     update_state: Arc<Mutex<UpdateState>>,
     show_donate: bool,
+    theme_preset: String,
     show_failed_ids: bool,
     schematic_stroke_color: [u8; 3],
     schematic_fill_color: [u8; 3],
@@ -175,6 +185,9 @@ struct SeexApp {
     active_color_picker: Option<u8>,
     manual_import_text: String,
     manual_import_status: Option<ManualImportStatus>,
+    file_dialog_tx: Sender<FileDialogResult>,
+    file_dialog_rx: Receiver<FileDialogResult>,
+    file_dialog_running: bool,
 }
 
 impl SeexApp {
@@ -182,6 +195,7 @@ impl SeexApp {
         let config = AppConfig::load();
         install_fonts(&cc.egui_ctx);
         DARK_MODE.store(detect_dark_mode(), Ordering::Relaxed);
+        THEME_PRESET.store(theme_index(&config.theme), Ordering::Relaxed);
         install_style(&cc.egui_ctx);
 
         let mut initial = MonitorState::new();
@@ -200,6 +214,7 @@ impl SeexApp {
             "donate-wechat",
             include_bytes!("../assets/donate/pay2.jpg"),
         );
+        let (file_dialog_tx, file_dialog_rx) = mpsc::channel();
 
         Self {
             state,
@@ -221,6 +236,7 @@ impl SeexApp {
             last_theme_check: Instant::now(),
             update_state: Arc::new(Mutex::new(UpdateState::default())),
             show_donate: config.show_donate,
+            theme_preset: normalize_theme_name(&config.theme),
             show_failed_ids: false,
             schematic_stroke_color: config.export.schematic_stroke_color,
             schematic_fill_color: config.export.schematic_fill_color,
@@ -229,6 +245,46 @@ impl SeexApp {
             active_color_picker: None,
             manual_import_text: String::new(),
             manual_import_status: None,
+            file_dialog_tx,
+            file_dialog_rx,
+            file_dialog_running: false,
+        }
+    }
+
+    fn start_file_dialog(&mut self, kind: FileDialogKind, ctx: &Context) {
+        if self.file_dialog_running {
+            return;
+        }
+
+        self.file_dialog_running = true;
+        let sender = self.file_dialog_tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let path = match kind {
+                FileDialogKind::SaveCsv => rfd::FileDialog::new()
+                    .add_filter("CSV", &["csv"])
+                    .set_file_name("matched.csv")
+                    .save_file(),
+                FileDialogKind::PickFolder => rfd::FileDialog::new().pick_folder(),
+            };
+            let _ = sender.send(FileDialogResult { kind, path });
+            ctx.request_repaint();
+        });
+    }
+
+    fn poll_file_dialog(&mut self) {
+        while let Ok(result) = self.file_dialog_rx.try_recv() {
+            self.file_dialog_running = false;
+            if let Some(path) = result.path {
+                if let Ok(mut state) = self.state.lock() {
+                    let path = monitor::normalize_path_string(&path.to_string_lossy());
+                    match result.kind {
+                        FileDialogKind::SaveCsv => state.set_matched_save_path(path),
+                        FileDialogKind::PickFolder => state.set_export_output_path(path),
+                    }
+                }
+                self.save_config();
+            }
         }
     }
 
@@ -271,6 +327,7 @@ impl SeexApp {
         // use it as the shared baseline for the neighboring export panel.
         const MONITOR_PANEL_HEIGHT: f32 = 267.0;
         let mut save_config = false;
+        let mut open_save_csv_dialog = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(self.t("Match mode:", "匹配模式:"));
             if ui
@@ -323,15 +380,7 @@ impl SeexApp {
                         );
                         ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
                             if ui.button(self.t("Browse", "浏览")).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("CSV", &["csv"])
-                                    .set_file_name("matched.csv")
-                                    .save_file()
-                                {
-                                    state
-                                        .set_matched_save_path(path.to_string_lossy().into_owned());
-                                    save_config = true;
-                                }
+                                open_save_csv_dialog = true;
                             }
                         });
                     });
@@ -378,6 +427,9 @@ impl SeexApp {
                 });
             }
         });
+        if open_save_csv_dialog {
+            self.start_file_dialog(FileDialogKind::SaveCsv, ui.ctx());
+        }
         if save_config {
             self.save_config();
         }
@@ -497,7 +549,7 @@ impl SeexApp {
                 }
             }
             let show_list = self.t("Show list", "显示列表");
-            ui.checkbox(&mut self.show_matched, show_list);
+            toggle_button(ui, &mut self.show_matched, show_list);
         });
 
         if let Some(result) = bom_result {
@@ -566,7 +618,7 @@ impl SeexApp {
                 count_chip(ui, history.len(), primary());
             });
             let show_history = self.t("Show history", "显示历史");
-            ui.checkbox(&mut self.show_history, show_history);
+            toggle_button(ui, &mut self.show_history, show_history);
 
             if history.is_empty() {
                 empty_state(ui, self.t("No history yet", "暂无历史记录"));
@@ -611,6 +663,7 @@ impl SeexApp {
     fn export_page(&mut self, ui: &mut Ui) {
         let mut request = None;
         let mut save_config = false;
+        let mut open_pick_folder_dialog = false;
         let mut schematic_stroke_color = self.schematic_stroke_color;
         let mut schematic_fill_color = self.schematic_fill_color;
         let mut schematic_stroke_hex = self.schematic_stroke_hex.clone();
@@ -773,10 +826,7 @@ impl SeexApp {
                         save_config = true;
                     }
                     if ui.button(self.t("Browse", "浏览")).clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                            state.set_export_output_path(path.to_string_lossy().into_owned());
-                            save_config = true;
-                        }
+                        open_pick_folder_dialog = true;
                     }
                 });
 
@@ -891,6 +941,10 @@ impl SeexApp {
             show_failed_ids_popup = !show_failed_ids_popup;
         }
         self.show_failed_ids = show_failed_ids_popup;
+        if open_pick_folder_dialog {
+            self.start_file_dialog(FileDialogKind::PickFolder, ui.ctx());
+        }
+
         if save_config {
             self.save_config();
         }
@@ -900,7 +954,7 @@ impl SeexApp {
     }
 
     fn more_page(&mut self, ui: &mut Ui) {
-        const MORE_PANEL_HEIGHT: f32 = 190.0;
+        const MORE_PANEL_HEIGHT: f32 = 300.0;
 
         ui.columns(2, |columns| {
             section_with_min_height(&mut columns[0], MORE_PANEL_HEIGHT, |ui| {
@@ -911,14 +965,69 @@ impl SeexApp {
                 );
                 ui.add_space(8.0);
 
+                ui.scope(|ui| {
+                    ui.spacing_mut().button_padding = Vec2::new(10.0, 6.0);
+                    let presets = [
+                        ("ocean", "Ocean", "海洋"),
+                        ("graphite", "Graphite", "石墨"),
+                        ("forest", "Forest", "森林"),
+                        ("amber", "Amber", "琥珀"),
+                        ("rose", "Rose", "玫瑰"),
+                        ("violet", "Violet", "紫罗兰"),
+                        ("teal", "Teal", "青色"),
+                        ("cobalt", "Cobalt", "钴蓝"),
+                        ("sunset", "Sunset", "日落"),
+                        ("mint", "Mint", "薄荷"),
+                        ("indigo", "Indigo", "靛蓝"),
+                        ("coral", "Coral", "珊瑚"),
+                    ];
+                    ui.horizontal(|ui| {
+                        ui.add_sized(
+                            Vec2::new(72.0, 38.0),
+                            egui::Label::new(
+                                RichText::new(self.t("Theme:", "主题:")).color(muted()),
+                            ),
+                        );
+                        let button_area_width = ui.available_width();
+                        let columns = 4;
+                        let gap = ui.spacing().item_spacing.x;
+                        let button_width = ((button_area_width - gap * (columns - 1) as f32)
+                            / columns as f32)
+                            .max(1.0);
+                        ui.vertical(|ui| {
+                            for row in presets.chunks(columns) {
+                                ui.horizontal(|ui| {
+                                    let row_width = row.len() as f32 * button_width
+                                        + (row.len().saturating_sub(1) as f32) * gap;
+                                    ui.add_space(((button_area_width - row_width) * 0.5).max(0.0));
+                                    for (id, en, zh) in row {
+                                        if ui
+                                            .add_sized(
+                                                Vec2::new(button_width, 38.0),
+                                                egui::Button::new(self.t(en, zh))
+                                                    .selected(self.theme_preset == *id),
+                                            )
+                                            .clicked()
+                                        {
+                                            self.theme_preset = (*id).to_string();
+                                            THEME_PRESET.store(theme_index(id), Ordering::Relaxed);
+                                            install_style(ui.ctx());
+                                            self.save_config();
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    });
+                });
+                ui.add_space(4.0);
+
                 let mut show_donate = self.show_donate;
-                if ui
-                    .checkbox(
-                        &mut show_donate,
-                        self.t("Show donation QR codes", "显示赞助二维码"),
-                    )
-                    .changed()
-                {
+                if toggle_button(
+                    ui,
+                    &mut show_donate,
+                    self.t("Show donation QR codes", "显示赞助二维码"),
+                ) {
                     self.show_donate = show_donate;
                     self.save_config();
                 }
@@ -980,17 +1089,26 @@ impl SeexApp {
 
         if self.show_donate {
             ui.add_space(12.0);
-            ui.columns(2, |columns| {
-                for (column, texture) in columns
-                    .iter_mut()
-                    .zip([&self.donate_pay, &self.donate_wechat])
-                {
-                    column.vertical_centered(|ui| {
-                        let image_size =
-                            fit_image_size(texture.size_vec2(), Vec2::new(420.0, 620.0));
-                        ui.image((texture.id(), image_size));
-                    });
-                }
+            let textures = [&self.donate_pay, &self.donate_wechat];
+            let available_width = ui.available_width();
+            let available_height = ui.available_height().min(700.0).max(1.0);
+            let gap = 18.0;
+            let aspect_sum = textures
+                .iter()
+                .map(|texture| texture.size_vec2().x / texture.size_vec2().y)
+                .sum::<f32>();
+            let image_height =
+                available_height.min(((available_width - gap).max(1.0) / aspect_sum).max(1.0));
+            let image_sizes = textures.map(|texture| {
+                let source_size = texture.size_vec2();
+                Vec2::new(image_height * source_size.x / source_size.y, image_height)
+            });
+            ui.horizontal(|ui| {
+                let row_width = image_sizes[0].x + image_sizes[1].x + gap;
+                ui.add_space(((ui.available_width() - row_width) * 0.5).max(0.0));
+                ui.image((textures[0].id(), image_sizes[0]));
+                ui.add_space(gap);
+                ui.image((textures[1].id(), image_sizes[1]));
             });
         }
     }
@@ -1087,6 +1205,7 @@ impl SeexApp {
                 &state,
                 self.lang,
                 self.show_donate,
+                self.theme_preset.clone(),
                 self.schematic_stroke_color,
                 self.schematic_fill_color,
             )
@@ -1111,6 +1230,7 @@ impl SeexApp {
 
 impl eframe::App for SeexApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        self.poll_file_dialog();
         self.sync_system_theme(ui.ctx());
         ui.ctx().request_repaint_after(Duration::from_millis(250));
         ui.painter().rect_filled(ui.max_rect(), 0, app_bg());
@@ -1284,6 +1404,7 @@ fn snapshot_config(
     state: &MonitorState,
     language: Lang,
     show_donate: bool,
+    theme: String,
     schematic_stroke_color: [u8; 3],
     schematic_fill_color: [u8; 3],
 ) -> AppConfig {
@@ -1312,6 +1433,7 @@ fn snapshot_config(
             Lang::Zh => "chinese".to_string(),
         },
         show_donate,
+        theme,
     }
 }
 
@@ -1397,14 +1519,14 @@ fn list_height(ui: &Ui, viewport_fraction: f32, minimum_rows: usize, row_height:
 }
 
 fn section_header(ui: &mut Ui, title: &str, desc: &str) {
-    ui.vertical(|ui| {
-        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+    ui.allocate_ui_with_layout(
+        Vec2::new(ui.available_width(), 56.0),
+        Layout::top_down(egui::Align::Min),
+        |ui| {
             ui.label(RichText::new(title).strong().color(text_color()));
-        });
-        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
             ui.label(RichText::new(desc).color(muted()));
-        });
-    });
+        },
+    );
 }
 
 fn section_header_inline(ui: &mut Ui, title: &str, right: impl FnOnce(&mut Ui)) {
@@ -1870,11 +1992,85 @@ fn is_dark_mode() -> bool {
     DARK_MODE.load(Ordering::Relaxed)
 }
 
+fn normalize_theme_name(theme: &str) -> String {
+    match theme.to_ascii_lowercase().as_str() {
+        "graphite" | "forest" | "amber" | "rose" | "violet" | "teal" | "cobalt" | "sunset"
+        | "mint" | "indigo" | "coral" => theme.to_ascii_lowercase(),
+        _ => "ocean".to_string(),
+    }
+}
+
+fn theme_index(theme: &str) -> u8 {
+    match normalize_theme_name(theme).as_str() {
+        "graphite" => 1,
+        "forest" => 2,
+        "amber" => 3,
+        "rose" => 4,
+        "violet" => 5,
+        "teal" => 6,
+        "cobalt" => 7,
+        "sunset" => 8,
+        "mint" => 9,
+        "indigo" => 10,
+        "coral" => 11,
+        _ => 0,
+    }
+}
+
 fn primary() -> Color32 {
-    if is_dark_mode() {
-        Color32::from_rgb(74, 174, 214)
+    let colors = if is_dark_mode() {
+        [
+            [74, 174, 214],
+            [165, 174, 190],
+            [84, 193, 135],
+            [235, 170, 78],
+            [235, 120, 145],
+            [180, 135, 235],
+            [72, 190, 180],
+            [100, 155, 235],
+            [245, 135, 95],
+            [105, 205, 160],
+            [125, 145, 245],
+            [245, 120, 105],
+        ]
     } else {
-        Color32::from_rgb(33, 137, 182)
+        [
+            [33, 137, 182],
+            [92, 102, 120],
+            [38, 152, 98],
+            [194, 119, 34],
+            [198, 76, 105],
+            [121, 76, 180],
+            [18, 135, 130],
+            [42, 94, 180],
+            [215, 91, 52],
+            [38, 150, 105],
+            [82, 86, 190],
+            [205, 78, 72],
+        ]
+    };
+    let color = colors[THEME_PRESET.load(Ordering::Relaxed).min(11) as usize];
+    Color32::from_rgb(color[0], color[1], color[2])
+}
+
+fn theme_tint() -> Color32 {
+    if is_dark_mode() {
+        app_bg()
+    } else {
+        match THEME_PRESET.load(Ordering::Relaxed) {
+            1 => Color32::from_rgb(247, 248, 250),
+            2 => Color32::from_rgb(246, 251, 248),
+            3 => Color32::from_rgb(255, 250, 243),
+            4 => Color32::from_rgb(253, 246, 248),
+            5 => Color32::from_rgb(249, 246, 253),
+            6 => Color32::from_rgb(243, 251, 250),
+            7 => Color32::from_rgb(244, 248, 253),
+            8 => Color32::from_rgb(255, 247, 243),
+            9 => Color32::from_rgb(244, 251, 247),
+            10 => Color32::from_rgb(246, 247, 253),
+            11 => Color32::from_rgb(253, 246, 244),
+            _ => Color32::from_rgb(246, 248, 250),
+        }
     }
 }
 
@@ -1882,7 +2078,20 @@ fn app_bg() -> Color32 {
     if is_dark_mode() {
         Color32::from_rgb(24, 27, 31)
     } else {
-        Color32::from_rgb(246, 248, 250)
+        match THEME_PRESET.load(Ordering::Relaxed) {
+            1 => Color32::from_rgb(246, 247, 249),
+            2 => Color32::from_rgb(244, 249, 246),
+            3 => Color32::from_rgb(252, 248, 242),
+            4 => Color32::from_rgb(252, 244, 247),
+            5 => Color32::from_rgb(247, 243, 252),
+            6 => Color32::from_rgb(241, 249, 248),
+            7 => Color32::from_rgb(242, 247, 252),
+            8 => Color32::from_rgb(253, 244, 240),
+            9 => Color32::from_rgb(241, 249, 244),
+            10 => Color32::from_rgb(243, 244, 251),
+            11 => Color32::from_rgb(252, 243, 241),
+            _ => Color32::from_rgb(246, 248, 250),
+        }
     }
 }
 
@@ -1890,7 +2099,7 @@ fn surface() -> Color32 {
     if is_dark_mode() {
         Color32::from_rgb(32, 36, 42)
     } else {
-        Color32::from_rgb(255, 255, 255)
+        theme_tint()
     }
 }
 
