@@ -21,7 +21,7 @@ The project history, in chronological order:
 
 - The project began with `nlbn` (Nice Library Bring now, a pun on "拿来吧你"). It was open-sourced and received a number of stars, but was later uploaded to `Gitee` without permission. I stopped maintaining `nlbn` and realized that many people do not read the `README` or `License`, and have little respect for copyright or other people's work. Since the project originally only had an English README, which many people could not understand, `nlbn` is no longer maintained.
 - While developing `nlbn`, I reverse-engineered parts of the `Altium Designer` file format and gradually created `npnp` (Normalize Pin Net Pad, a pun on "牛批牛批"). It was also open-sourced and copied. A corresponding `GUI` tool was then created using `tauri2`. Although it was rough, it helped many users solve their problems.
-- That GUI tool became the current `seex` (Seek and Export). It originally called the `npnp` `cli` for exports, which meant maintaining two repositories. After the refactor, `seex` no longer depends on `npnp`; it contains the required functionality directly and uses the `egui/eframe` GUI framework. From now on, only `seex` will be maintained and `npnp` binaries will no longer be released.
+- That GUI tool became the current `seex` (Seek and Export). It originally called the `npnp` `cli` for exports, which meant maintaining two repositories. After the refactor, `seex` no longer depends on `npnp`; it contains the required functionality directly and uses the `egui/eframe` GUI framework. `npnp` may also continue to be maintained for users who need it in `CI` workflows.
 - If you have a feature you would like to see, please contact me. Email: `lampmud@163.com` / `ybinlew@gmail.com`. You can also open an issue.
 - Please do not rewrite this tool in `python`. Python is not my `taste`. Thank you for understanding.
 
@@ -44,6 +44,14 @@ The project history, in chronological order:
 - [x] Use multiple threads for downloads.
 - [x] Add new components to existing libraries exported by `seex`.
 - [x] Customize schematic stroke and fill colors.
+
+## Supported EDA Versions
+
+> [!NOTE]
+> These are the versions currently known to work. SeEx may support additional versions. If a library exported by SeEx cannot be opened by an older EDA version, please open an issue so compatibility can be considered.
+
+- [x] `KiCad 9.0` to `Latest`
+- [x] `Altium Designer 23.x` to `Latest`
 
 ## What Is Planned?
 
