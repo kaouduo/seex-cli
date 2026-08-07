@@ -910,8 +910,10 @@ impl SeexApp {
     }
 
     fn more_page(&mut self, ui: &mut Ui) {
+        const MORE_PANEL_HEIGHT: f32 = 190.0;
+
         ui.columns(2, |columns| {
-            section(&mut columns[0], |ui| {
+            section_with_min_height(&mut columns[0], MORE_PANEL_HEIGHT, |ui| {
                 section_header(
                     ui,
                     self.t("Preferences", "偏好设置"),
@@ -932,7 +934,7 @@ impl SeexApp {
                 }
             });
 
-            section(&mut columns[1], |ui| {
+            section_with_min_height(&mut columns[1], MORE_PANEL_HEIGHT, |ui| {
                 section_header(
                     ui,
                     self.t("Updates", "更新"),
@@ -1353,6 +1355,28 @@ fn section(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
                 .inner_margin(Margin::symmetric(18, 16))
                 .show(ui, |ui| {
                     ui.set_width((width - 36.0).max(0.0));
+                    ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
+                    add_contents(ui);
+                });
+        },
+    );
+}
+
+fn section_with_min_height(ui: &mut Ui, min_height: f32, add_contents: impl FnOnce(&mut Ui)) {
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, min_height),
+        Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            ui.set_min_height(min_height);
+            Frame::new()
+                .fill(surface())
+                .stroke(Stroke::new(1.0, border()))
+                .inner_margin(Margin::symmetric(18, 16))
+                .show(ui, |ui| {
+                    ui.set_width((width - 36.0).max(0.0));
+                    ui.set_min_height((min_height - 32.0).max(0.0));
                     ui.spacing_mut().item_spacing = Vec2::new(10.0, 10.0);
                     add_contents(ui);
                 });
