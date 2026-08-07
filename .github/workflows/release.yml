@@ -219,7 +219,7 @@ jobs:
     needs: [build, build-linux-distro]
     steps:
       - name: Check out release notes
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: refs/tags/${{ inputs.tag }}
           sparse-checkout: .github/release_notes
