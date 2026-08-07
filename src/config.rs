@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub monitor: MonitorConfig,
     pub ui_language: String,
     pub show_donate: bool,
+    pub theme: String,
 }
 
 impl Default for AppConfig {
@@ -22,6 +23,7 @@ impl Default for AppConfig {
             monitor: MonitorConfig::default(),
             ui_language: "english".to_string(),
             show_donate: true,
+            theme: "ocean".to_string(),
         }
     }
 }
