@@ -739,7 +739,7 @@ impl SeexApp {
                 ui.horizontal(|ui| {
                     if color_setting(
                         ui,
-                        self.t("Stroke color:", "描边颜色:"),
+                        self.t("SCH stroke color:", "原理图描边颜色:"),
                         &mut schematic_stroke_color,
                         &mut schematic_stroke_hex,
                         0,
@@ -749,7 +749,7 @@ impl SeexApp {
                     }
                     if color_setting(
                         ui,
-                        self.t("Fill color:", "填充颜色:"),
+                        self.t("SCH fill color:", "原理图填充颜色:"),
                         &mut schematic_fill_color,
                         &mut schematic_fill_hex,
                         1,
@@ -1410,6 +1410,131 @@ fn fixed_label(ui: &mut Ui, label: &str) {
     );
 }
 
+fn compact_color_picker(ui: &mut Ui, color: &mut [u8; 3], picker_id: u8, chinese: bool) -> bool {
+    let mut hsva = egui::ecolor::Hsva::from_srgba_unmultiplied([color[0], color[1], color[2], 255]);
+    let mut changed = false;
+    let canvas_size = Vec2::new(280.0, 190.0);
+    let (canvas_rect, canvas_response) = ui
+        .horizontal(|ui| {
+            ui.add_space(((ui.available_width() - canvas_size.x) * 0.5).max(0.0));
+            ui.allocate_exact_size(canvas_size, egui::Sense::click_and_drag())
+        })
+        .inner;
+    let painter = ui.painter_at(canvas_rect);
+    let columns = 28;
+    let rows = 18;
+    for column in 0..columns {
+        for row in 0..rows {
+            let left = egui::lerp(
+                canvas_rect.left()..=canvas_rect.right(),
+                column as f32 / columns as f32,
+            );
+            let right = egui::lerp(
+                canvas_rect.left()..=canvas_rect.right(),
+                (column + 1) as f32 / columns as f32,
+            );
+            let top = egui::lerp(
+                canvas_rect.top()..=canvas_rect.bottom(),
+                row as f32 / rows as f32,
+            );
+            let bottom = egui::lerp(
+                canvas_rect.top()..=canvas_rect.bottom(),
+                (row + 1) as f32 / rows as f32,
+            );
+            let cell = egui::ecolor::Hsva::new(
+                hsva.h,
+                (column as f32 + 0.5) / columns as f32,
+                1.0 - (row as f32 + 0.5) / rows as f32,
+                1.0,
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_max([left, top].into(), [right, bottom].into()),
+                0.0,
+                Color32::from(cell),
+            );
+        }
+    }
+    if let Some(position) = canvas_response.interact_pointer_pos() {
+        if canvas_response.dragged() || canvas_response.clicked() {
+            hsva.s = ((position.x - canvas_rect.left()) / canvas_rect.width()).clamp(0.0, 1.0);
+            hsva.v =
+                (1.0 - (position.y - canvas_rect.top()) / canvas_rect.height()).clamp(0.0, 1.0);
+            changed = true;
+        }
+    }
+    let marker = egui::pos2(
+        egui::lerp(canvas_rect.left()..=canvas_rect.right(), hsva.s),
+        egui::lerp(canvas_rect.bottom()..=canvas_rect.top(), hsva.v),
+    );
+    painter.circle_stroke(marker, 7.0, Stroke::new(1.5, Color32::WHITE));
+    painter.circle_stroke(marker, 8.5, Stroke::new(1.0, Color32::BLACK));
+
+    let hue_size = Vec2::new(280.0, 22.0);
+    let (hue_rect, hue_response) = ui
+        .horizontal(|ui| {
+            ui.add_space(((ui.available_width() - hue_size.x) * 0.5).max(0.0));
+            ui.allocate_exact_size(hue_size, egui::Sense::click_and_drag())
+        })
+        .inner;
+    let hue_painter = ui.painter_at(hue_rect);
+    let hue_steps = 36;
+    for step in 0..hue_steps {
+        let left = egui::lerp(
+            hue_rect.left()..=hue_rect.right(),
+            step as f32 / hue_steps as f32,
+        );
+        let right = egui::lerp(
+            hue_rect.left()..=hue_rect.right(),
+            (step + 1) as f32 / hue_steps as f32,
+        );
+        hue_painter.rect_filled(
+            egui::Rect::from_min_max(
+                [left, hue_rect.top()].into(),
+                [right, hue_rect.bottom()].into(),
+            ),
+            if step == 0 || step == hue_steps - 1 {
+                11.0
+            } else {
+                0.0
+            },
+            Color32::from(egui::ecolor::Hsva::new(
+                step as f32 / hue_steps as f32,
+                1.0,
+                1.0,
+                1.0,
+            )),
+        );
+    }
+    if let Some(position) = hue_response.interact_pointer_pos() {
+        if hue_response.dragged() || hue_response.clicked() {
+            hsva.h = ((position.x - hue_rect.left()) / hue_rect.width()).clamp(0.0, 1.0);
+            changed = true;
+        }
+    }
+    let hue_marker_x = egui::lerp(hue_rect.left()..=hue_rect.right(), hsva.h);
+    hue_painter.line_segment(
+        [
+            egui::pos2(hue_marker_x, hue_rect.top()),
+            egui::pos2(hue_marker_x, hue_rect.bottom()),
+        ],
+        Stroke::new(2.0, Color32::WHITE),
+    );
+    hue_painter.line_segment(
+        [
+            egui::pos2(hue_marker_x - 1.0, hue_rect.top()),
+            egui::pos2(hue_marker_x - 1.0, hue_rect.bottom()),
+        ],
+        Stroke::new(1.0, Color32::BLACK),
+    );
+
+    if changed {
+        let rgba = hsva.to_srgba_unmultiplied();
+        *color = [rgba[0], rgba[1], rgba[2]];
+    }
+    let _ = (picker_id, chinese);
+    changed
+}
+
 fn color_setting(
     ui: &mut Ui,
     label: &str,
@@ -1420,15 +1545,12 @@ fn color_setting(
 ) -> bool {
     let mut changed = false;
     let mut opened_this_frame = false;
+    let chinese = label.chars().any(|character| character > '\u{7f}');
     ui.horizontal(|ui| {
         fixed_label(ui, label);
         let swatch = Color32::from_rgb(color[0], color[1], color[2]);
         if ui
-            .add(
-                egui::Button::new("")
-                    .min_size(Vec2::new(28.0, 24.0))
-                    .fill(swatch),
-            )
+            .add_sized(Vec2::splat(28.0), egui::Button::new("").fill(swatch))
             .clicked()
         {
             *active_picker = if *active_picker == Some(picker_id) {
@@ -1459,46 +1581,57 @@ fn color_setting(
             .id(egui::Id::new(("schematic-color", picker_id)))
             .collapsible(false)
             .resizable(false)
-            .default_width(260.0)
+            .min_width(320.0)
+            .max_width(320.0)
             .show(ui.ctx(), |ui| {
-                ui.label("Pick a swatch:");
-                ui.horizontal_wrapped(|ui| {
-                    for palette_color in [
-                        [0, 0, 0],
-                        [255, 255, 255],
-                        [220, 53, 69],
-                        [255, 193, 7],
-                        [25, 135, 84],
-                        [13, 110, 253],
-                        [111, 66, 193],
-                        [11, 56, 104],
-                    ] {
-                        let response =
-                            ui.add(egui::Button::new("").min_size(Vec2::splat(24.0)).fill(
-                                Color32::from_rgb(
-                                    palette_color[0],
-                                    palette_color[1],
-                                    palette_color[2],
-                                ),
-                            ));
+                ui.set_width(320.0);
+                ui.set_max_width(320.0);
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 8.0);
+                ui.horizontal(|ui| {
+                    let palette = [
+                        [255, 248, 240],
+                        [245, 250, 120],
+                        [232, 226, 250],
+                        [245, 100, 40],
+                        [20, 80, 45],
+                        [108, 117, 125],
+                    ];
+                    let diameter = 36.0;
+                    let spacing = ui.spacing().item_spacing.x;
+                    let row_width =
+                        palette.len() as f32 * diameter + (palette.len() - 1) as f32 * spacing;
+                    ui.add_space(((ui.available_width() - row_width) * 0.5).max(0.0));
+                    for palette_color in palette {
+                        let (rect, response) =
+                            ui.allocate_exact_size(Vec2::splat(diameter), egui::Sense::click());
+                        ui.painter().circle_filled(
+                            rect.center(),
+                            16.0,
+                            Color32::from_rgb(palette_color[0], palette_color[1], palette_color[2]),
+                        );
+                        ui.painter().circle_stroke(
+                            rect.center(),
+                            17.0,
+                            Stroke::new(
+                                if *color == palette_color { 2.0 } else { 1.0 },
+                                if *color == palette_color {
+                                    Color32::BLACK
+                                } else {
+                                    border()
+                                },
+                            ),
+                        );
                         if response.clicked() {
                             *color = palette_color;
                             changed = true;
                         }
                     }
                 });
-                ui.spacing_mut().slider_width = ui.available_width().max(180.0);
-                let mut color32 = Color32::from_rgb(color[0], color[1], color[2]);
-                if egui::color_picker::color_picker_color32(
-                    ui,
-                    &mut color32,
-                    egui::color_picker::Alpha::Opaque,
-                ) {
-                    *color = [color32.r(), color32.g(), color32.b()];
+                if compact_color_picker(ui, color, picker_id, chinese) {
                     changed = true;
                 }
                 ui.horizontal(|ui| {
-                    ui.label("Hex");
+                    ui.label(if chinese { "十六进制" } else { "Hex" });
                     if ui
                         .add_sized(
                             Vec2::new(110.0, 28.0),
@@ -1511,7 +1644,7 @@ fn color_setting(
                             changed = true;
                         }
                     }
-                    if ui.button("Done").clicked() {
+                    if ui.button(if chinese { "完成" } else { "Done" }).clicked() {
                         *active_picker = None;
                     }
                 });
