@@ -221,6 +221,7 @@ jobs:
       - name: Check out release notes
         uses: actions/checkout@v5
         with:
+          ref: refs/tags/${{ inputs.tag }}
           sparse-checkout: .github/release_notes
           sparse-checkout-cone-mode: true
 
