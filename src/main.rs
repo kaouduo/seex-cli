@@ -835,45 +835,43 @@ impl SeexApp {
                     }
                 });
 
-                ui.horizontal_wrapped(|ui| {
-                    if state.export_target == "altium" && state.export_mode != "3d" {
-                        let mut merge = state.export_merge;
-                        if ui.checkbox(&mut merge, self.t("Merge", "合并")).changed() {
-                            state.set_export_merge(merge);
-                            save_config = true;
+                ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
+                    ui.horizontal(|ui| {
+                        if state.export_target == "altium" && state.export_mode != "3d" {
+                            let mut merge = state.export_merge;
+                            if toggle_button(ui, &mut merge, self.t("Merge", "合并")) {
+                                state.set_export_merge(merge);
+                                save_config = true;
+                            }
+                            let mut append = state.export_append;
+                            if toggle_button(ui, &mut append, self.t("Append", "追加")) {
+                                state.set_export_append(append);
+                                save_config = true;
+                            }
                         }
-                        let mut append = state.export_append;
-                        if ui.checkbox(&mut append, self.t("Append", "追加")).changed() {
-                            state.set_export_append(append);
-                            save_config = true;
-                        }
-                    }
-                    let mut continue_on_error = state.export_continue_on_error;
-                    if ui
-                        .checkbox(
+                        let mut continue_on_error = state.export_continue_on_error;
+                        if toggle_button(
+                            ui,
                             &mut continue_on_error,
                             self.t("Continue On Error", "出错继续"),
-                        )
-                        .changed()
-                    {
-                        state.set_export_continue_on_error(continue_on_error);
-                        save_config = true;
-                    }
-                    let mut force = state.export_force;
-                    if ui.checkbox(&mut force, self.t("Force", "强制")).changed() {
-                        state.set_export_force(force);
-                        save_config = true;
-                    }
-                    let mut english = state.export_lcsc_english;
-                    if ui
-                        .checkbox(&mut english, self.t("English metadata", "英文元数据"))
-                        .changed()
-                    {
-                        state.set_export_lcsc_english(english);
-                        state.bom_language =
-                            if english { "english" } else { "chinese" }.to_string();
-                        save_config = true;
-                    }
+                        ) {
+                            state.set_export_continue_on_error(continue_on_error);
+                            save_config = true;
+                        }
+                        let mut force = state.export_force;
+                        if toggle_button(ui, &mut force, self.t("Force", "强制")) {
+                            state.set_export_force(force);
+                            save_config = true;
+                        }
+                        let mut english = state.export_lcsc_english;
+                        if toggle_button(ui, &mut english, self.t("English metadata", "英文元数据"))
+                        {
+                            state.set_export_lcsc_english(english);
+                            state.bom_language =
+                                if english { "english" } else { "chinese" }.to_string();
+                            save_config = true;
+                        }
+                    });
                 });
             });
         }
@@ -1331,6 +1329,15 @@ fn build_keyword(match_quick: bool, match_full: bool) -> String {
 fn mode_button(ui: &mut Ui, mode: &mut String, value: &str, label: &str) {
     if ui.selectable_label(mode == value, label).clicked() {
         *mode = value.to_string();
+    }
+}
+
+fn toggle_button(ui: &mut Ui, value: &mut bool, label: &str) -> bool {
+    if ui.selectable_label(*value, label).clicked() {
+        *value = !*value;
+        true
+    } else {
+        false
     }
 }
 
