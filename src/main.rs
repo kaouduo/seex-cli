@@ -259,6 +259,9 @@ impl SeexApp {
     }
 
     fn monitor_page(&mut self, ui: &mut Ui) {
+        // The manual-import content naturally settles at roughly this height;
+        // use it as the shared baseline for the neighboring export panel.
+        const MONITOR_PANEL_HEIGHT: f32 = 267.0;
         let mut save_config = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(self.t("Match mode:", "匹配模式:"));
@@ -296,65 +299,75 @@ impl SeexApp {
         });
 
         ui.add_space(10.0);
-        self.manual_import_panel(ui);
-        ui.add_space(10.0);
-        if let Ok(mut state) = self.state.lock() {
-            section(ui, |ui| {
-                section_header(
-                    ui,
-                    self.t("Export files", "导出文件"),
-                    self.t(
-                        "BOM CSV for component keeping.",
-                        "用于元件管理的 BOM CSV 文件。",
-                    ),
-                );
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    fixed_label(ui, self.t("BOM CSV file:", "BOM CSV 文件:"));
-                    if ui
-                        .add(
-                            TextEdit::singleline(&mut state.matched_save_path).desired_width(640.0),
-                        )
-                        .changed()
-                    {
-                        save_config = true;
-                    }
-                    if ui.button(self.t("Browse", "浏览")).clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("CSV", &["csv"])
-                            .set_file_name("matched.csv")
-                            .save_file()
+        ui.columns(2, |columns| {
+            self.manual_import_panel(&mut columns[0], MONITOR_PANEL_HEIGHT);
+
+            if let Ok(mut state) = self.state.lock() {
+                section_with_min_height(&mut columns[1], MONITOR_PANEL_HEIGHT, |ui| {
+                    ui.horizontal(|ui| {
+                        section_header(
+                            ui,
+                            self.t("Export files", "导出文件"),
+                            self.t(
+                                "BOM CSV for component keeping.",
+                                "用于元件管理的 BOM CSV 文件。",
+                            ),
+                        );
+                        ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
+                            if ui.button(self.t("Browse", "浏览")).clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("CSV", &["csv"])
+                                    .set_file_name("matched.csv")
+                                    .save_file()
+                                {
+                                    state
+                                        .set_matched_save_path(path.to_string_lossy().into_owned());
+                                    save_config = true;
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        fixed_label(ui, self.t("BOM CSV file:", "BOM CSV 文件:"));
+                        let input_width = ui.available_width().max(80.0);
+                        if ui
+                            .add_sized(
+                                Vec2::new(input_width, 30.0),
+                                TextEdit::singleline(&mut state.matched_save_path),
+                            )
+                            .changed()
                         {
-                            state.set_matched_save_path(path.to_string_lossy().into_owned());
                             save_config = true;
                         }
-                    }
+                    });
+                    ui.horizontal(|ui| {
+                        fixed_label(ui, self.t("Metadata language:", "元数据语言:"));
+                        if ui
+                            .selectable_label(
+                                state.bom_language != "english",
+                                self.t("Chinese", "中文"),
+                            )
+                            .clicked()
+                        {
+                            state.set_bom_language("chinese".to_string());
+                            save_config = true;
+                        }
+                        if ui
+                            .selectable_label(
+                                state.bom_language == "english",
+                                self.t("English", "英文"),
+                            )
+                            .clicked()
+                        {
+                            state.set_bom_language("english".to_string());
+                            save_config = true;
+                        }
+                    });
+                    ui.add_space(18.0);
                 });
-                ui.horizontal(|ui| {
-                    fixed_label(ui, self.t("Metadata language:", "元数据语言:"));
-                    if ui
-                        .selectable_label(
-                            state.bom_language != "english",
-                            self.t("Chinese", "中文"),
-                        )
-                        .clicked()
-                    {
-                        state.set_bom_language("chinese".to_string());
-                        save_config = true;
-                    }
-                    if ui
-                        .selectable_label(
-                            state.bom_language == "english",
-                            self.t("English", "英文"),
-                        )
-                        .clicked()
-                    {
-                        state.set_bom_language("english".to_string());
-                        save_config = true;
-                    }
-                });
-            });
-        }
+            }
+        });
         if save_config {
             self.save_config();
         }
@@ -365,7 +378,7 @@ impl SeexApp {
         self.matched_list(ui);
     }
 
-    fn manual_import_panel(&mut self, ui: &mut Ui) {
+    fn manual_import_panel(&mut self, ui: &mut Ui, min_height: f32) {
         let paste_label = self.t("Paste Text for Import", "粘贴文本导入");
         let import_label = self.t("Import IDs", "导入 ID");
         let hint = self.t(
@@ -377,7 +390,7 @@ impl SeexApp {
             "示例：C2040、C2927505 或立创商品链接",
         );
 
-        section(ui, |ui| {
+        section_with_min_height(ui, min_height, |ui| {
             section_header(ui, self.t("Manual import", "手动导入"), hint);
             ui.add_space(8.0);
             ui.add(
