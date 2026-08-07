@@ -78,3 +78,43 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked --bin seex
+
+  linux-distros:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Fedora
+            image: fedora:latest
+            install: >-
+              dnf install -y git ca-certificates rust cargo gcc gcc-c++ make
+              pkgconf-pkg-config openssl-devel libX11-devel libXi-devel libxcb-devel
+              libXcursor-devel libXrandr-devel libXinerama-devel libxkbcommon-devel
+              libxkbcommon-x11-devel wayland-devel mesa-libGL-devel mesa-libEGL-devel
+              gtk3-devel dbus-devel systemd-devel
+          - name: Arch Linux
+            image: archlinux:latest
+            install: >-
+              sed -i "/^DisableSandbox/d; /^\[options\]/a DisableSandbox"
+              /etc/pacman.conf && pacman -Syu --noconfirm --needed git ca-certificates
+              base-devel rust cargo pkgconf openssl libx11 libxi libxcb libxcursor
+              libxrandr libxinerama libxkbcommon libxkbcommon-x11 wayland mesa gtk3
+              dbus systemd-libs
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Build and test in distro container
+        env:
+          INSTALL_COMMAND: ${{ matrix.install }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e INSTALL_COMMAND \
+            "${{ matrix.image }}" \
+            bash -lc 'eval "$INSTALL_COMMAND" && cargo test --locked && cargo build --release --locked --bin seex'
