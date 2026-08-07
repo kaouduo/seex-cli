@@ -44,6 +44,9 @@ jobs:
       - name: Check compilation
         run: cargo check --locked
 
+      - name: Run Clippy correctness checks
+        run: cargo clippy --locked --all-targets --all-features -- -D clippy::correctness -D clippy::suspicious
+
       - name: Run tests
         run: cargo test --locked
 
