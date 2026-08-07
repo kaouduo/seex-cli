@@ -258,22 +258,7 @@ impl SeexApp {
         }
     }
 
-    fn page_title(&self, ui: &mut Ui, title: &'static str, desc: &'static str) {
-        ui.vertical(|ui| {
-            ui.heading(RichText::new(title).color(text_color()));
-            ui.add_space(2.0);
-            ui.label(RichText::new(desc).color(muted()));
-        });
-        ui.add_space(16.0);
-    }
-
     fn monitor_page(&mut self, ui: &mut Ui) {
-        self.page_title(
-            ui,
-            self.t("Monitor", "监听"),
-            self.t("Clipboard event tracker", "剪贴板事件追踪器"),
-        );
-
         let mut save_config = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(self.t("Match mode:", "匹配模式:"));
@@ -571,12 +556,6 @@ impl SeexApp {
     }
 
     fn history_page(&mut self, ui: &mut Ui) {
-        self.page_title(
-            ui,
-            self.t("History", "历史"),
-            self.t("Clipboard history", "剪贴板历史"),
-        );
-
         let history = self
             .state
             .lock()
@@ -631,12 +610,6 @@ impl SeexApp {
     }
 
     fn export_page(&mut self, ui: &mut Ui) {
-        self.page_title(
-            ui,
-            self.t("Export", "导出"),
-            self.t("Component export integrations", "元件导出集成"),
-        );
-
         let mut request = None;
         let mut save_config = false;
         let mut schematic_stroke_color = self.schematic_stroke_color;
