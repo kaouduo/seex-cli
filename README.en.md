@@ -44,6 +44,7 @@ The project history, in chronological order:
 - [x] Use multiple threads for downloads.
 - [x] Add new components to existing libraries exported by `seex`.
 - [x] Customize schematic stroke and fill colors.
+- [x] Export `3D` models independently.
 
 ## Supported EDA Versions
 
