@@ -17,6 +17,7 @@ const UPSTREAM_BLOCK_RETRY_DELAY_MS: u64 = 10_000;
 const UPSTREAM_BLOCK_COOLDOWN_MS: u64 = 45_000;
 const COMPONENT_REQUEST_INTERVAL_MS: u64 = 150;
 const MODEL_REQUEST_INTERVAL_MS: u64 = 150;
+const MODEL_DOWNLOAD_BASE_URL: &str = "https://modules.lceda.cn/qAxj6KHrDKw4blvCG8QJPs7Y";
 type DownloadCell = Arc<OnceCell<std::result::Result<Arc<Vec<u8>>, String>>>;
 type DownloadCache = Arc<Mutex<HashMap<String, DownloadCell>>>;
 
@@ -57,7 +58,6 @@ impl EasyedaApi {
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .read_timeout(std::time::Duration::from_secs(30))
                 .pool_max_idle_per_host(32)
-                .http1_only()
                 .build()
                 .expect("Failed to create model HTTP client"),
             step_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -397,10 +397,7 @@ impl EasyedaApi {
     }
 
     pub async fn download_3d_step(&self, uuid: &str) -> Result<Vec<u8>> {
-        let url = format!(
-            "https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{}",
-            uuid
-        );
+        let url = format!("{MODEL_DOWNLOAD_BASE_URL}/{uuid}");
         let cell = {
             let mut cache = self.step_cache.lock().await;
             cache
