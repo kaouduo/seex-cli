@@ -8,6 +8,8 @@ use encoding_rs::WINDOWS_1252;
 use crate::error::Result;
 
 const LIBRARY_DATA_TEMPLATE: &str = include_str!("pcblib_library_data_template.txt");
+const SEEX_AUTHOR: &str = "ref42";
+const SEEX_PROJECT_URL: &str = "https://github.com/ref42/seex";
 
 pub const LAYER_TOP: u8 = 1;
 pub const LAYER_BOTTOM: u8 = 32;
@@ -514,6 +516,8 @@ fn component_parameters_bytes(component: &PcbComponent) -> Vec<u8> {
     let mut params = Params::default();
     params.push("PATTERN", &component.name);
     params.push("HEIGHT", component.height_raw.to_string());
+    params.push("SEEX_AUTHOR", SEEX_AUTHOR);
+    params.push("SEEX_PROJECT_URL", SEEX_PROJECT_URL);
     if !component.description.trim().is_empty() {
         params.push("DESCRIPTION", &component.description);
     }

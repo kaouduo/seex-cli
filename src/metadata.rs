@@ -7,6 +7,9 @@ use crate::lceda::SearchItem;
 use crate::lcsc::LcscProduct;
 use crate::util::{nested_string, value_to_string};
 
+const SEEX_AUTHOR: &str = "ref42";
+const SEEX_PROJECT_URL: &str = "https://github.com/ref42/seex";
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolvedMetadata {
     pub lcsc_id: Option<String>,
@@ -112,7 +115,7 @@ impl ResolvedMetadata {
             supplier_part: clean_value(&component_data.lcsc_id),
             lcsc_part: clean_value(&component_data.lcsc_id),
             datasheet: clean_value(&component_data.datasheet),
-            parameters: Vec::new(),
+            parameters: build_project_parameters(),
             ..Self::default()
         };
 
@@ -170,6 +173,8 @@ fn build_lceda_parameters(
     footprint: &Option<String>,
 ) -> Vec<MetadataParameter> {
     let mut builder = ParameterBuilder::default();
+    builder.push("SEEX_AUTHOR", SEEX_AUTHOR);
+    builder.push("SEEX_PROJECT_URL", SEEX_PROJECT_URL);
     if let Some(component_id) = lcsc_id {
         builder.push("SEEX_COMPONENT_ID", component_id);
     }
@@ -193,6 +198,13 @@ fn build_lceda_parameters(
         }
     }
 
+    builder.parameters
+}
+
+fn build_project_parameters() -> Vec<MetadataParameter> {
+    let mut builder = ParameterBuilder::default();
+    builder.push("SEEX_AUTHOR", SEEX_AUTHOR);
+    builder.push("SEEX_PROJECT_URL", SEEX_PROJECT_URL);
     builder.parameters
 }
 
@@ -376,6 +388,11 @@ mod tests {
         assert_eq!(metadata.description.as_deref(), Some("Source description"));
         assert_eq!(metadata.manufacturer.as_deref(), Some("Raspberry Pi"));
         assert_eq!(metadata.footprint.as_deref(), Some("QFN-56"));
+        assert_eq!(parameter_value(&metadata, "SEEX_AUTHOR"), Some("ref42"));
+        assert_eq!(
+            parameter_value(&metadata, "SEEX_PROJECT_URL"),
+            Some("https://github.com/ref42/seex")
+        );
         assert_eq!(
             parameter_value(&metadata, "SEEX_COMPONENT_ID"),
             Some("C2040")
