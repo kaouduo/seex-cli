@@ -63,6 +63,22 @@
 > 1. 不会增加预览`3D`模型的功能。可能部分二开的工具确实增加了这个功能，但在我看来就是画蛇添足，直接在xx商城预览就行，根本没必要搬到`seex`里，一是占据了软件界面，二是占用内存。
 > 2. 如果没有更好的`GUI`框架出现的话，短时间内不会更换`GUI`框架。
 
+<table>
+  <summary>SeEx界面预览</summary>
+
+  <table>
+    <tr>
+      <td><img src="imgs/5.png" width="600" /></td>
+      <td><img src="imgs/6.png" width="600" /></td>
+    </tr>
+    <tr>
+      <td><img src="imgs/7.png" width="600" /></td>
+      <td><img src="imgs/8.png" width="600" /></td>
+    </tr>
+  </table>
+</table>
+
+
 ### 导出示例
 
 <table>

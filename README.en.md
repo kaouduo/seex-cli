@@ -75,6 +75,21 @@ The project history, in chronological order:
 > 1. SeEx will not add a `3D` model preview. Some derivative tools may include this feature, but I consider it unnecessary: preview it directly in the component store instead. Adding it to `seex` would take up interface space and memory.
 > 2. The GUI framework will not be replaced in the short term unless a better framework becomes available.
 
+<table>
+  <summary>SeEx GUI Preview</summary>
+
+  <table>
+    <tr>
+      <td><img src="imgs/1.png" width="600" /></td>
+      <td><img src="imgs/2.png" width="600" /></td>
+    </tr>
+    <tr>
+      <td><img src="imgs/3.png" width="600" /></td>
+      <td><img src="imgs/4.png" width="600" /></td>
+    </tr>
+  </table>
+</table>
+
 ### Export Examples
 
 <table>
