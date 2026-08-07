@@ -10,11 +10,15 @@ use crate::extract::extract_lcsc_ids;
 
 pub type ExportProgressCallback = Arc<dyn Fn(usize, usize, &str) + Send + Sync>;
 
+pub fn normalize_path_string(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 pub fn default_save_path(filename: &str) -> String {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join(filename)))
-        .map(|p| p.to_string_lossy().into_owned())
+        .map(|p| normalize_path_string(&p.to_string_lossy()))
         .unwrap_or_else(|| filename.to_string())
 }
 
@@ -238,7 +242,7 @@ impl MonitorState {
     }
 
     pub fn set_export_output_path(&mut self, path: String) {
-        self.export_output_path = path;
+        self.export_output_path = normalize_path_string(&path);
     }
 
     pub fn set_export_target(&mut self, target: String) {
@@ -305,7 +309,7 @@ impl MonitorState {
         self.matched_save_path = if trimmed.is_empty() {
             default_save_path("matched.csv")
         } else {
-            trimmed.to_string()
+            normalize_path_string(trimmed)
         };
     }
 
@@ -409,7 +413,15 @@ impl Drop for MonitorHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::{MatchedEntry, MonitorState};
+    use super::{MatchedEntry, MonitorState, normalize_path_string};
+
+    #[test]
+    fn normalizes_windows_path_separators() {
+        assert_eq!(
+            normalize_path_string(r"C:\Users\Admin\Desktop\SeEx"),
+            "C:/Users/Admin/Desktop/SeEx"
+        );
+    }
 
     #[test]
     fn unique_ids_normalize_duplicate_entries() {

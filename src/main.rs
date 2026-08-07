@@ -346,6 +346,8 @@ impl SeexApp {
                             )
                             .changed()
                         {
+                            state.matched_save_path =
+                                monitor::normalize_path_string(&state.matched_save_path);
                             save_config = true;
                         }
                     });
@@ -766,6 +768,8 @@ impl SeexApp {
                         )
                         .changed()
                     {
+                        state.export_output_path =
+                            monitor::normalize_path_string(&state.export_output_path);
                         save_config = true;
                     }
                     if ui.button(self.t("Browse", "浏览")).clicked() {
