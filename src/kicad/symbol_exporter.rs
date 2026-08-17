@@ -391,7 +391,7 @@ impl SymbolExporter {
         let y1 = self.converter.px_to_mm(rect.y1);
         let x2 = self.converter.px_to_mm(rect.x2);
         let y2 = self.converter.px_to_mm(rect.y2);
-        let _width = self.converter.px_to_mm(rect.stroke_width);
+        let width = self.converter.px_to_mm(rect.stroke_width);
 
         let fill = if rect.fill {
             format!(
@@ -405,12 +405,12 @@ impl SymbolExporter {
         };
 
         format!(
-            "      (rectangle\n        (start {:.2} {:.2})\n        (end {:.2} {:.2})\n        (stroke (width {}) (type default) (color {} 0))\n        {}\n      )\n",
+            "      (rectangle\n        (start {:.2} {:.2})\n        (end {:.2} {:.2})\n        (stroke (width {:.4}) (type default) (color {} 0))\n        {}\n      )\n",
             x1,
             y1,
             x2,
             y2,
-            0,
+            width,
             self.color(),
             fill
         )
@@ -433,15 +433,24 @@ impl SymbolExporter {
         let cy = self.converter.px_to_mm(circle.cy);
         let radius = self.converter.px_to_mm(circle.radius);
 
-        // Circles in symbols should always have fill type "none" to match Python output
-        let fill = "none";
+        let fill = if circle.fill {
+            format!(
+                "(fill (type color) (color {} {} {} 1))",
+                self.schematic_fill_color[0],
+                self.schematic_fill_color[1],
+                self.schematic_fill_color[2]
+            )
+        } else {
+            "(fill (type none))".to_string()
+        };
+        let width = self.converter.px_to_mm(circle.stroke_width);
 
         format!(
-            "      (circle\n        (center {:.2} {:.2})\n        (radius {:.2})\n        (stroke (width {}) (type default) (color {} 0))\n        (fill (type {}))\n      )\n",
+            "      (circle\n        (center {:.2} {:.2})\n        (radius {:.2})\n        (stroke (width {:.4}) (type default) (color {} 0))\n        {}\n      )\n",
             cx,
             cy,
             radius,
-            0,
+            width,
             self.color(),
             fill
         )
@@ -490,7 +499,16 @@ impl SymbolExporter {
         }
 
         let width = self.converter.px_to_mm(polyline.stroke_width);
-        let fill = if polyline.fill { "outline" } else { "none" };
+        let fill = if polyline.fill {
+            format!(
+                "(fill (type color) (color {} {} {} 1))",
+                self.schematic_fill_color[0],
+                self.schematic_fill_color[1],
+                self.schematic_fill_color[2]
+            )
+        } else {
+            "(fill (type none))".to_string()
+        };
 
         output.push_str("      )\n");
         output.push_str(&format!(
@@ -498,7 +516,7 @@ impl SymbolExporter {
             width,
             self.color()
         ));
-        output.push_str(&format!("      (fill (type {}))\n", fill));
+        output.push_str(&format!("      {}\n", fill));
         output.push_str("    )\n");
 
         output
@@ -578,6 +596,55 @@ mod tests {
         assert!(output.contains("(name \"A1\""));
         assert!(output.contains("(name \"B1\""));
         assert_eq!(output.matches("(pin ").count(), 2);
+    }
+
+    #[test]
+    fn v6_preserves_stroke_width_and_fill_color_for_geometry() {
+        let exporter = SymbolExporter::new(KicadVersion::V6, [1, 2, 3], [4, 5, 6]);
+        let symbol = KiSymbol {
+            name: "Geometry".to_string(),
+            reference: "U".to_string(),
+            value: "Geometry".to_string(),
+            description: String::new(),
+            footprint: String::new(),
+            datasheet: String::new(),
+            manufacturer: String::new(),
+            lcsc_id: String::new(),
+            jlc_id: String::new(),
+            units: Vec::new(),
+            pins: Vec::new(),
+            rectangles: vec![KiRectangle {
+                x1: 0.0,
+                y1: 0.0,
+                x2: 10.0,
+                y2: 10.0,
+                stroke_width: 2.0,
+                fill: true,
+            }],
+            circles: vec![KiCircle {
+                cx: 5.0,
+                cy: 5.0,
+                radius: 2.0,
+                stroke_width: 2.0,
+                fill: true,
+            }],
+            arcs: Vec::new(),
+            polylines: vec![KiPolyline {
+                points: vec![(0.0, 0.0), (10.0, 10.0)],
+                stroke_width: 2.0,
+                fill: true,
+            }],
+            texts: Vec::new(),
+        };
+
+        let output = exporter.export(&symbol).unwrap();
+        assert!(output.matches("(stroke (width 0.5080)").count() >= 3);
+        assert!(
+            output
+                .matches("(fill (type color) (color 4 5 6 1))")
+                .count()
+                >= 3
+        );
     }
 
     fn unit_with_pin(name: &str, number: &str) -> KiSymbolUnit {
