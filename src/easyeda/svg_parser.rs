@@ -1,4 +1,4 @@
-use crate::error::{ConversionError, Result};
+use crate::error::Result;
 use regex::Regex;
 
 #[derive(Debug, Clone)]
@@ -23,86 +23,285 @@ pub enum SvgCommand {
     ClosePath,
 }
 
+fn is_command(token: &str) -> bool {
+    token.len() == 1 && token.as_bytes()[0].is_ascii_alphabetic()
+}
+
+fn read_number(tokens: &[String], index: &mut usize) -> Option<f64> {
+    let token = tokens.get(*index)?;
+    if is_command(token) {
+        return None;
+    }
+    *index += 1;
+    token.parse().ok()
+}
+
+fn read_pair(tokens: &[String], index: &mut usize) -> Option<(f64, f64)> {
+    Some((read_number(tokens, index)?, read_number(tokens, index)?))
+}
+
+fn add_curve(
+    points: &mut Vec<SvgCommand>,
+    start: (f64, f64),
+    end: (f64, f64),
+    controls: &[(f64, f64)],
+) {
+    // KiCad symbols do not have a cubic path primitive. Approximate curves with
+    // short line segments so curved outlines remain visible instead of vanishing.
+    const SEGMENTS: usize = 12;
+    for step in 1..=SEGMENTS {
+        let t = step as f64 / SEGMENTS as f64;
+        let point = match controls {
+            [control] => {
+                let u = 1.0 - t;
+                (
+                    u * u * start.0 + 2.0 * u * t * control.0 + t * t * end.0,
+                    u * u * start.1 + 2.0 * u * t * control.1 + t * t * end.1,
+                )
+            }
+            [first, second] => {
+                let u = 1.0 - t;
+                (
+                    u.powi(3) * start.0
+                        + 3.0 * u.powi(2) * t * first.0
+                        + 3.0 * u * t.powi(2) * second.0
+                        + t.powi(3) * end.0,
+                    u.powi(3) * start.1
+                        + 3.0 * u.powi(2) * t * first.1
+                        + 3.0 * u * t.powi(2) * second.1
+                        + t.powi(3) * end.1,
+                )
+            }
+            _ => end,
+        };
+        points.push(SvgCommand::LineTo {
+            x: point.0,
+            y: point.1,
+        });
+    }
+}
+
 pub fn parse_svg_path(path: &str) -> Result<Vec<SvgCommand>> {
+    let token_re =
+        Regex::new(r"[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?").unwrap();
+    let tokens: Vec<String> = token_re
+        .find_iter(path.trim())
+        .map(|match_| match_.as_str().to_string())
+        .collect();
+
     let mut commands = Vec::new();
-    let path = path.trim();
+    let mut index = 0;
+    let mut command = None;
+    let mut current = (0.0, 0.0);
+    let mut subpath_start = current;
+    let mut last_cubic_control: Option<(f64, f64)> = None;
+    let mut last_quadratic_control: Option<(f64, f64)> = None;
 
-    // Regex patterns for SVG commands
-    let move_re = Regex::new(r"M\s*([-\d.]+)[,\s]+([-\d.]+)").unwrap();
-    let line_re = Regex::new(r"L\s*([-\d.]+)[,\s]+([-\d.]+)").unwrap();
-    let arc_re = Regex::new(
-        r"A\s*([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([01])[,\s]+([01])[,\s]+([-\d.]+)[,\s]+([-\d.]+)"
-    ).unwrap();
+    while index < tokens.len() {
+        if is_command(&tokens[index]) {
+            command = Some(tokens[index].as_bytes()[0] as char);
+            index += 1;
+        }
+        let Some(active) = command else { break };
+        let relative = active.is_ascii_lowercase();
+        let upper = active.to_ascii_uppercase();
 
-    let mut pos = 0;
-    let chars: Vec<char> = path.chars().collect();
-
-    while pos < chars.len() {
-        let remaining = &path[pos..];
-
-        if remaining.starts_with('M') {
-            if let Some(cap) = move_re.captures(remaining) {
-                let x = cap[1].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid MoveTo X coordinate".to_string())
-                })?;
-                let y = cap[2].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid MoveTo Y coordinate".to_string())
-                })?;
-                commands.push(SvgCommand::MoveTo { x, y });
-                pos += cap.get(0).unwrap().len();
-            } else {
-                pos += 1;
+        match upper {
+            'M' => {
+                let Some(mut point) = read_pair(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                if relative {
+                    point.0 += current.0;
+                    point.1 += current.1;
+                }
+                current = point;
+                subpath_start = point;
+                commands.push(SvgCommand::MoveTo {
+                    x: point.0,
+                    y: point.1,
+                });
+                last_cubic_control = None;
+                last_quadratic_control = None;
+                command = Some(if relative { 'l' } else { 'L' });
             }
-        } else if remaining.starts_with('L') {
-            if let Some(cap) = line_re.captures(remaining) {
-                let x = cap[1].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid LineTo X coordinate".to_string())
-                })?;
-                let y = cap[2].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid LineTo Y coordinate".to_string())
-                })?;
-                commands.push(SvgCommand::LineTo { x, y });
-                pos += cap.get(0).unwrap().len();
-            } else {
-                pos += 1;
+            'L' => {
+                let Some(mut point) = read_pair(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                if relative {
+                    point.0 += current.0;
+                    point.1 += current.1;
+                }
+                current = point;
+                commands.push(SvgCommand::LineTo {
+                    x: point.0,
+                    y: point.1,
+                });
+                last_cubic_control = None;
+                last_quadratic_control = None;
             }
-        } else if remaining.starts_with('A') {
-            if let Some(cap) = arc_re.captures(remaining) {
-                let rx = cap[1]
-                    .parse::<f64>()
-                    .map_err(|_| ConversionError::SvgParse("Invalid Arc RX".to_string()))?;
-                let ry = cap[2]
-                    .parse::<f64>()
-                    .map_err(|_| ConversionError::SvgParse("Invalid Arc RY".to_string()))?;
-                let angle = cap[3]
-                    .parse::<f64>()
-                    .map_err(|_| ConversionError::SvgParse("Invalid Arc angle".to_string()))?;
-                let large_arc = &cap[4] == "1";
-                let sweep = &cap[5] == "1";
-                let x = cap[6].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid Arc X coordinate".to_string())
-                })?;
-                let y = cap[7].parse::<f64>().map_err(|_| {
-                    ConversionError::SvgParse("Invalid Arc Y coordinate".to_string())
-                })?;
+            'H' | 'V' => {
+                let Some(value) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let point = if upper == 'H' {
+                    (if relative { current.0 + value } else { value }, current.1)
+                } else {
+                    (current.0, if relative { current.1 + value } else { value })
+                };
+                current = point;
+                commands.push(SvgCommand::LineTo {
+                    x: point.0,
+                    y: point.1,
+                });
+                last_cubic_control = None;
+                last_quadratic_control = None;
+            }
+            'C' | 'S' => {
+                let (first, second, mut end) = if upper == 'C' {
+                    let Some(first) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    let Some(second) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    let Some(end) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    (first, second, end)
+                } else {
+                    let first = last_cubic_control
+                        .map(|control| (2.0 * current.0 - control.0, 2.0 * current.1 - control.1))
+                        .unwrap_or(current);
+                    let Some(second) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    let Some(end) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    (first, second, end)
+                };
+                if relative {
+                    let offset = current;
+                    if upper == 'C' {
+                        end = (end.0 + offset.0, end.1 + offset.1);
+                    }
+                }
+                let (first, second, end) = if relative {
+                    let offset = current;
+                    if upper == 'C' {
+                        (
+                            (first.0 + offset.0, first.1 + offset.1),
+                            (second.0 + offset.0, second.1 + offset.1),
+                            end,
+                        )
+                    } else {
+                        (first, (second.0 + offset.0, second.1 + offset.1), end)
+                    }
+                } else {
+                    (first, second, end)
+                };
+                add_curve(&mut commands, current, end, &[first, second]);
+                current = end;
+                last_cubic_control = Some(second);
+                last_quadratic_control = None;
+            }
+            'Q' | 'T' => {
+                let control = if upper == 'Q' {
+                    let Some(control) = read_pair(&tokens, &mut index) else {
+                        command = None;
+                        continue;
+                    };
+                    control
+                } else {
+                    last_quadratic_control
+                        .map(|previous| {
+                            (2.0 * current.0 - previous.0, 2.0 * current.1 - previous.1)
+                        })
+                        .unwrap_or(current)
+                };
+                let Some(mut end) = read_pair(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                if relative {
+                    let offset = current;
+                    end = (end.0 + offset.0, end.1 + offset.1);
+                    let control = if upper == 'Q' {
+                        (control.0 + offset.0, control.1 + offset.1)
+                    } else {
+                        control
+                    };
+                    add_curve(&mut commands, current, end, &[control]);
+                    last_quadratic_control = Some(control);
+                } else {
+                    add_curve(&mut commands, current, end, &[control]);
+                    last_quadratic_control = Some(control);
+                }
+                current = end;
+                last_cubic_control = None;
+            }
+            'A' => {
+                let Some(rx) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let Some(ry) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let Some(angle) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let Some(large_arc) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let Some(sweep) = read_number(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                let Some(mut end) = read_pair(&tokens, &mut index) else {
+                    command = None;
+                    continue;
+                };
+                if relative {
+                    end.0 += current.0;
+                    end.1 += current.1;
+                }
                 commands.push(SvgCommand::Arc {
                     rx,
                     ry,
                     angle,
-                    large_arc,
-                    sweep,
-                    x,
-                    y,
+                    large_arc: large_arc != 0.0,
+                    sweep: sweep != 0.0,
+                    x: end.0,
+                    y: end.1,
                 });
-                pos += cap.get(0).unwrap().len();
-            } else {
-                pos += 1;
+                current = end;
+                last_cubic_control = None;
+                last_quadratic_control = None;
             }
-        } else if remaining.starts_with('Z') || remaining.starts_with('z') {
-            commands.push(SvgCommand::ClosePath);
-            pos += 1;
-        } else {
-            pos += 1;
+            'Z' => {
+                commands.push(SvgCommand::ClosePath);
+                current = subpath_start;
+                command = None;
+                last_cubic_control = None;
+                last_quadratic_control = None;
+            }
+            _ => {
+                command = None;
+            }
         }
     }
 
@@ -114,23 +313,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_simple_path() {
-        let path = "M 10,20 L 30,40 Z";
-        let commands = parse_svg_path(path).unwrap();
-        assert_eq!(commands.len(), 3);
+    fn parses_compact_relative_lines() {
+        let commands = parse_svg_path("m10,20 l5,0 0,5 z").unwrap();
+        assert_eq!(commands.len(), 4);
+        assert!(matches!(commands[1], SvgCommand::LineTo { x, y } if x == 15.0 && y == 20.0));
     }
 
     #[test]
-    fn test_parse_arc() {
-        let path = "M 0,0 A 10,10 0 0 1 20,20";
-        let commands = parse_svg_path(path).unwrap();
-        assert_eq!(commands.len(), 2);
+    fn parses_horizontal_vertical_and_curves() {
+        let commands = parse_svg_path("M0 0 H10 V10 C10 20 20 20 20 10").unwrap();
+        assert!(commands.len() > 10);
     }
 
     #[test]
-    fn test_parse_footprint_arc_comma_no_space() {
-        let path = "M3956.6958,3000.9151 A29.0043,29.0043 0 1 0 3898.9082,2999.9286";
-        let commands = parse_svg_path(path).unwrap();
+    fn parses_arc_with_comma_separators() {
+        let commands = parse_svg_path("M0,0 A10,10 0 1 0 20,20").unwrap();
         assert_eq!(commands.len(), 2);
+        assert!(matches!(
+            commands[1],
+            SvgCommand::Arc {
+                large_arc: true,
+                sweep: false,
+                ..
+            }
+        ));
     }
 }

@@ -785,32 +785,37 @@ impl SeexApp {
                         });
                     if target != state.export_target {
                         state.set_export_target(target);
+                        if state.export_target == "kicad" {
+                            active_color_picker = None;
+                        }
                         save_config = true;
                     }
                 });
 
-                ui.horizontal(|ui| {
-                    if color_setting(
-                        ui,
-                        self.t("SCH stroke color:", "原理图描边颜色:"),
-                        &mut schematic_stroke_color,
-                        &mut schematic_stroke_hex,
-                        0,
-                        &mut active_color_picker,
-                    ) {
-                        save_config = true;
-                    }
-                    if color_setting(
-                        ui,
-                        self.t("SCH fill color:", "原理图填充颜色:"),
-                        &mut schematic_fill_color,
-                        &mut schematic_fill_hex,
-                        1,
-                        &mut active_color_picker,
-                    ) {
-                        save_config = true;
-                    }
-                });
+                if state.export_target != "kicad" {
+                    ui.horizontal(|ui| {
+                        if color_setting(
+                            ui,
+                            self.t("SCH stroke color:", "原理图描边颜色:"),
+                            &mut schematic_stroke_color,
+                            &mut schematic_stroke_hex,
+                            0,
+                            &mut active_color_picker,
+                        ) {
+                            save_config = true;
+                        }
+                        if color_setting(
+                            ui,
+                            self.t("SCH fill color:", "原理图填充颜色:"),
+                            &mut schematic_fill_color,
+                            &mut schematic_fill_hex,
+                            1,
+                            &mut active_color_picker,
+                        ) {
+                            save_config = true;
+                        }
+                    });
+                }
 
                 ui.horizontal(|ui| {
                     fixed_label(ui, self.t("Export directory:", "导出目录:"));

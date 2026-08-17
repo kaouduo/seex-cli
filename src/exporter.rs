@@ -290,8 +290,6 @@ fn build_kicad_batch_options(
             full: mode == "full",
             force: req.force,
             kicad_version: KicadVersion::V6,
-            schematic_stroke_color: req.schematic_stroke_color,
-            schematic_fill_color: req.schematic_fill_color,
         },
         english_metadata: req.lcsc_english,
         parallel: req.parallel.max(1),

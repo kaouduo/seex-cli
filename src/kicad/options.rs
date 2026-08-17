@@ -10,8 +10,6 @@ pub struct KicadExportOptions {
     pub full: bool,
     pub force: bool,
     pub kicad_version: KicadVersion,
-    pub schematic_stroke_color: [u8; 3],
-    pub schematic_fill_color: [u8; 3],
 }
 
 impl KicadExportOptions {
