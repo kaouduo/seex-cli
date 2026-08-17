@@ -37,6 +37,7 @@ use crate::config::{AppConfig, ExportConfig, MonitorConfig};
 const PATTERN_QUICK: &str = "regex:(?m)^(C\\d{3,})$";
 const PATTERN_FULL: &str = "regex:编号[：:]\\s*(C\\d+)";
 const RELEASES_API_URL: &str = "https://api.github.com/repos/ref42/seex/releases/latest";
+const RELEASES_WEB_URL: &str = "https://github.com/ref42/seex/releases/latest";
 const FONT_SCALE_FROM_CURRENT: f32 = 0.75;
 static DARK_MODE: AtomicBool = AtomicBool::new(false);
 static THEME_PRESET: AtomicU8 = AtomicU8::new(0);
@@ -1137,19 +1138,7 @@ impl SeexApp {
                     .enable_all()
                     .build()
                     .map_err(|error| error.to_string())?;
-                runtime.block_on(async {
-                    reqwest::Client::new()
-                        .get(RELEASES_API_URL)
-                        .header("User-Agent", "SeEx")
-                        .send()
-                        .await
-                        .map_err(|error| error.to_string())?
-                        .error_for_status()
-                        .map_err(|error| error.to_string())?
-                        .json::<GitHubRelease>()
-                        .await
-                        .map_err(|error| error.to_string())
-                })
+                runtime.block_on(async { fetch_latest_release().await })
             })();
 
             if let Ok(mut state) = state.lock() {
@@ -1818,6 +1807,48 @@ fn color_setting(
 
 fn color_to_hex(color: [u8; 3]) -> String {
     format!("#{:02X}{:02X}{:02X}", color[0], color[1], color[2])
+}
+
+async fn fetch_latest_release() -> Result<GitHubRelease, String> {
+    let client = reqwest::Client::new();
+    let api_response = client
+        .get(RELEASES_API_URL)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "SeEx")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if api_response.status().is_success() {
+        return api_response
+            .json::<GitHubRelease>()
+            .await
+            .map_err(|error| error.to_string());
+    }
+
+    let api_status = api_response.status();
+    let web_response = client
+        .get(RELEASES_WEB_URL)
+        .header("User-Agent", "SeEx")
+        .send()
+        .await
+        .map_err(|error| {
+            format!("GitHub API returned {api_status}; web fallback failed: {error}")
+        })?;
+    let web_url = web_response.url().to_string();
+    let tag_name = web_url
+        .split("/releases/tag/")
+        .nth(1)
+        .filter(|tag| !tag.is_empty())
+        .map(|tag| tag.trim_end_matches('/').to_string())
+        .ok_or_else(|| {
+            format!("GitHub API returned {api_status}; latest release tag was not found")
+        })?;
+
+    Ok(GitHubRelease {
+        tag_name,
+        html_url: web_url,
+    })
 }
 
 fn parse_hex_color(value: &str) -> Option<[u8; 3]> {
