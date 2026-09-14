@@ -60,7 +60,6 @@ The project history, in chronological order:
 - [ ] Continue improving the current workflow and fix more hidden `bugs`.
 - [ ] Keep improving interactions and usability, refine the icons, and try new design languages.
 - [ ] Explore a broadly applicable way to remove or hide parts of `3D` models, such as specific markings.
-- [ ] If projects need `CI` support, possibly restart and maintain the `npnp` `CLI` again.
 
 ## Who Would SeEx Like to Contribute?
 
