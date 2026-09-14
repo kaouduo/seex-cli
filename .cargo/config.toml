@@ -1,0 +1,6 @@
+flags = ["-Z, embedmetadata=no"]
+
+
+[alias]
+br = "build --release"
+rr = "run --release"
