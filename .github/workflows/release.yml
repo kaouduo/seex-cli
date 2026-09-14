@@ -54,7 +54,7 @@ jobs:
 
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.tag }}
 
@@ -190,7 +190,7 @@ jobs:
 
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.tag }}
 
@@ -219,7 +219,7 @@ jobs:
     needs: [build, build-linux-distro]
     steps:
       - name: Check out release notes
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.tag }}
           sparse-checkout: .github/release_notes
