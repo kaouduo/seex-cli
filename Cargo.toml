@@ -5,6 +5,15 @@ edition = "2024"
 description = "A clipboard event tracker and EDA library exporter."
 license-file = "LICENSE"
 
+[features]
+default = []
+gui = ["dep:dark-light", "dep:eframe", "dep:image", "dep:rfd", "dep:resvg", "dep:winresource"]
+
+[[bin]]
+name = "seex"
+path = "src/main.rs"
+required-features = ["gui"]
+
 [profile.release]
 opt-level = "z"
 lto = "fat"
@@ -14,20 +23,21 @@ strip = "symbols"
 incremental = false
 
 [dependencies]
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 arboard = "3.6.1"
 cfb = "0.14.0"
 clap = { version = "4.6.1", features = ["derive"] }
 chrono = "0.4.45"
-dark-light = "2.0.0"
+dark-light = { version = "2.0.0", optional = true }
 directories = "6.0.0"
 encoding_rs = "0.8.35"
-eframe = { version = "0.35.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.35.0", optional = true, default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 futures-util = "0.3.32"
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25.10", optional = true, default-features = false, features = ["jpeg", "png"] }
 log = "0.4.33"
 regex = "1.13.1"
-reqwest = { version = "0.13.4", features = ["json", "stream"] }
-rfd = "0.17.2"
+reqwest = { version = "0.13.4", default-features = false, features = ["native-tls", "charset", "http2", "system-proxy", "json", "stream"] }
+rfd = { version = "0.17.2", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2.0.18"
@@ -37,7 +47,7 @@ tokio = { version = "1.53.0", features = ["macros", "rt-multi-thread", "sync", "
 windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell"] }
 
 [target.'cfg(windows)'.build-dependencies]
-winresource = "0.1.31"
+winresource = { version = "0.1.31", optional = true }
 
 [build-dependencies]
-resvg = "0.45.1"
+resvg = { version = "0.45.1", optional = true }

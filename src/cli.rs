@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use clap::{ArgAction, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "export")]
-#[command(version)]
-#[command(about = "Normalize Pin Net Pad (export) - pure Rust EDA library exporter")]
+#[command(name = "seex-cli")]
+#[command(version = "1.1.2-cli.1")]
+#[command(
+    about = "SeEx by Ref42 — local console adapter and read-only EasyEDA Pro project scanner"
+)]
 pub struct Cli {
     /// Show ready-to-run example commands
     #[arg(long, global = true, action = ArgAction::SetTrue)]
@@ -17,6 +19,24 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Read an EasyEDA Pro .epro2 ZIP or .epru; never edits the project
+    ScanProject {
+        input: PathBuf,
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+        /// Optional deduplicated C-code list for kicad batch (not the inventory JSON)
+        #[arg(long)]
+        ids_output: Option<PathBuf>,
+    },
+    /// Download STEP using a 32-hex online model UUID, not a KiCad/local ID
+    ModelUuid {
+        uuid: String,
+        /// UUID is already the STEP asset ID, not the component's 3D Model reference
+        #[arg(long)]
+        step_asset: bool,
+        #[arg(long, short = 'o')]
+        output: PathBuf,
+    },
     /// Search components by keyword
     Search {
         /// Search keyword, e.g. C8755 or TYPE-C
@@ -255,6 +275,43 @@ pub enum KicadVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_project_and_online_model_modes() {
+        let cli = Cli::try_parse_from([
+            "seex-cli",
+            "scan-project",
+            "board.epro2",
+            "-o",
+            "out.json",
+            "--ids-output",
+            "ids.txt",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::ScanProject {
+                ids_output: Some(_),
+                ..
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "seex-cli",
+            "model-uuid",
+            "0123456789abcdef0123456789abcdef",
+            "--step-asset",
+            "-o",
+            "a.step",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::ModelUuid {
+                step_asset: true,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn parses_prompt_without_subcommand() {

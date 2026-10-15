@@ -1,3 +1,5 @@
+> **此 fork 增加 CLI 支持。** 命令、Windows 编译和工程扫描说明见 [README.CLI.md](README.CLI.md)。原作者及许可见 [UPSTREAM.md](UPSTREAM.md)。GUI 构建需加 `--features gui`。
+
 <p align="center">
   <img src="assets/icons/seex.svg" alt="SeEx 图标" width="200" />
 </p>

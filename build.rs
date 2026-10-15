@@ -1,6 +1,9 @@
+#[cfg(feature = "gui")]
 use std::fs;
+#[cfg(feature = "gui")]
 use std::path::PathBuf;
 
+#[cfg(feature = "gui")]
 fn render_png(tree: &resvg::usvg::Tree, size: u32) -> Vec<u8> {
     let mut pixmap =
         resvg::tiny_skia::Pixmap::new(size, size).expect("failed to allocate SeEx logo raster");
@@ -15,6 +18,10 @@ fn render_png(tree: &resvg::usvg::Tree, size: u32) -> Vec<u8> {
     pixmap.encode_png().expect("failed to encode SeEx PNG logo")
 }
 
+#[cfg(not(feature = "gui"))]
+fn main() {}
+
+#[cfg(feature = "gui")]
 fn main() {
     println!("cargo:rerun-if-changed=assets/icons/seex.svg");
 

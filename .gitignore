@@ -1,1 +1,5 @@
 /target
+/dist
+/validation
+/build-*.log
+/test-*.log

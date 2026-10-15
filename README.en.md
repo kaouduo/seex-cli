@@ -1,3 +1,5 @@
+> **This fork adds a CLI.** See [README.CLI.md](README.CLI.md) for commands and Windows build instructions, and [UPSTREAM.md](UPSTREAM.md) for attribution. Build the original GUI with `--features gui`.
+
 <p align="center">
   <img src="assets/icons/seex.svg" alt="SeEx icon" width="200" />
 </p>
