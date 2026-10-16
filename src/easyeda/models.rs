@@ -215,6 +215,7 @@ pub struct EeHole {
     pub x: f64,
     pub y: f64,
     pub radius: f64, // EasyEDA stores radius, not diameter
+    pub slot_size: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone)]

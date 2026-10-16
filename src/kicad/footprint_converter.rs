@@ -213,20 +213,25 @@ pub fn convert_footprint(
 
         // EasyEDA stores radius, so diameter = radius * 2
         let diameter = ee_hole.radius * 2.0;
+        let (size_x, size_y) = ee_hole.slot_size.unwrap_or((diameter, diameter));
 
         ki_footprint.pads.push(kicad::KiPad {
             number: String::new(), // Empty number for non-plated holes
             pad_type: kicad::PadType::NpThroughHole,
-            shape: kicad::PadShape::Circle,
+            shape: if ee_hole.slot_size.is_some() {
+                kicad::PadShape::Oval
+            } else {
+                kicad::PadShape::Circle
+            },
             pos_x: adjusted_x,
             pos_y: adjusted_y,
-            size_x: diameter,
-            size_y: diameter,
+            size_x,
+            size_y,
             rotation: 0.0,
             layers: vec!["*.Cu".to_string(), "*.Mask".to_string()],
             drill: Some(kicad::Drill {
-                diameter,
-                width: None,
+                diameter: size_x,
+                width: ee_hole.slot_size.map(|_| size_y),
                 offset_x: 0.0,
                 offset_y: 0.0,
             }),

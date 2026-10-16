@@ -1,6 +1,30 @@
 use crate::easyeda::models::*;
 use crate::error::{EasyedaError, Result};
 
+#[cfg(test)]
+mod npth_tests {
+    use super::*;
+    #[test]
+    fn npth_stadium_preserves_center_and_drill() {
+        let source = "SOLIDREGION~11~~M 4023.0809 3003.98028 L 4023.9471 3003.98028 A1.02362,1.02362 0 0 1 4023.9471 3006.02752 L 4023.0809 3006.02752 A1.02362,1.02362 0 0 1 4023.0809 3003.98028 Z~npth~example";
+        let fp = FootprintImporter::parse(&[source.into()]).unwrap();
+        assert_eq!(fp.holes.len(), 1);
+        let h = &fp.holes[0];
+        assert!((h.x - 4023.514).abs() < 1e-6);
+        assert!((h.y - 3005.0039).abs() < 1e-6);
+        let (w, v) = h.slot_size.unwrap();
+        assert!((w * 0.254 - 0.74001376).abs() < 1e-7);
+        assert!((v * 0.254 - 0.5200).abs() < 0.00001);
+    }
+    #[test]
+    fn npth_unsupported_region_is_not_silently_dropped() {
+        assert!(
+            FootprintImporter::parse(&["SOLIDREGION~11~~M 0 0 L 1 0 L 1 1 Z~npth~example".into()])
+                .is_err()
+        );
+    }
+}
+
 pub struct SymbolImporter;
 
 impl SymbolImporter {
@@ -745,6 +769,9 @@ impl FootprintImporter {
                         footprint.holes.push(hole);
                     }
                 }
+                "SOLIDREGION" if fields.get(4) == Some(&"npth") => {
+                    footprint.holes.push(Self::parse_npth_slot(&fields)?);
+                }
                 "VIA" => {
                     if let Ok(via) = Self::parse_via(&fields) {
                         footprint.vias.push(via);
@@ -999,7 +1026,101 @@ impl FootprintImporter {
             .parse::<f64>()
             .map_err(|_| EasyedaError::InvalidData("Invalid hole radius".to_string()))?;
 
-        Ok(EeHole { x, y, radius })
+        Ok(EeHole {
+            x,
+            y,
+            radius,
+            slot_size: None,
+        })
+    }
+
+    fn parse_npth_slot(fields: &[&str]) -> Result<EeHole> {
+        use crate::easyeda::svg_parser::{SvgCommand, parse_svg_path};
+        let invalid = || {
+            EasyedaError::InvalidData(
+                "Unsupported NPTH region; refusing to omit or approximate its drill".into(),
+            )
+        };
+        let commands = parse_svg_path(fields.get(3).ok_or_else(invalid)?)?;
+        let [
+            SvgCommand::MoveTo { x: x0, y: y0 },
+            SvgCommand::LineTo { x: x1, y: y1 },
+            SvgCommand::Arc {
+                rx: r1,
+                ry: s1,
+                angle: a1,
+                large_arc: l1,
+                sweep: w1,
+                x: x2,
+                y: y2,
+            },
+            SvgCommand::LineTo { x: x3, y: y3 },
+            SvgCommand::Arc {
+                rx: r2,
+                ry: s2,
+                angle: a2,
+                large_arc: l2,
+                sweep: w2,
+                x: x4,
+                y: y4,
+            },
+            SvgCommand::ClosePath,
+        ] = commands.as_slice()
+        else {
+            return Err(invalid().into());
+        };
+        let near = |a: f64, b: f64| (a - b).abs() < 0.0001;
+        if !r1.is_finite()
+            || *r1 <= 0.0
+            || !near(*r1, *s1)
+            || !near(*r1, *r2)
+            || !near(*r1, *s2)
+            || !near(*a1, 0.0)
+            || !near(*a2, 0.0)
+            || *l1
+            || *l2
+            || w1 != w2
+            || !near(*x4, *x0)
+            || !near(*y4, *y0)
+        {
+            return Err(invalid().into());
+        }
+        let horizontal = near(*y0, *y1)
+            && near(*x1, *x2)
+            && near(*y2, *y3)
+            && near(*x0, *x3)
+            && near((*y2 - *y1).abs(), 2.0 * r1);
+        let vertical = near(*x0, *x1)
+            && near(*y1, *y2)
+            && near(*x2, *x3)
+            && near(*y0, *y3)
+            && near((*x2 - *x1).abs(), 2.0 * r1);
+        let (x, y, width, height) = if horizontal {
+            (
+                (*x0 + *x1) / 2.0,
+                (*y1 + *y2) / 2.0,
+                (*x1 - *x0).abs() + 2.0 * r1,
+                2.0 * r1,
+            )
+        } else if vertical {
+            (
+                (*x1 + *x2) / 2.0,
+                (*y0 + *y1) / 2.0,
+                2.0 * r1,
+                (*y1 - *y0).abs() + 2.0 * r1,
+            )
+        } else {
+            return Err(invalid().into());
+        };
+        if ![x, y, width, height].iter().all(|v| v.is_finite()) {
+            return Err(invalid().into());
+        }
+        Ok(EeHole {
+            x,
+            y,
+            radius: *r1,
+            slot_size: Some((width, height)),
+        })
     }
 
     fn parse_via(fields: &[&str]) -> Result<EeVia> {
